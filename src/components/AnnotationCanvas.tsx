@@ -35,8 +35,17 @@ interface ResizeHandleConfig {
   cursor: string;
 }
 
+interface Viewport {
+  scale: number;
+  x: number;
+  y: number;
+}
+
 const HANDLE_SIZE = 8;
 const MIN_BOX_SIZE = 8;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 8;
+const ZOOM_STEP = 1.12;
 const RESIZE_HANDLES: ResizeHandleConfig[] = [
   { id: "top-left", horizontal: "left", vertical: "top", cursor: "nwse-resize" },
   { id: "top", horizontal: "center", vertical: "top", cursor: "ns-resize" },
@@ -57,8 +66,39 @@ export default function AnnotationCanvas(props: Props) {
   let imageNode: Konva.Image | undefined;
   let imageEl: HTMLImageElement | undefined;
   let metrics: ImageMetrics | undefined;
+  let viewport: Viewport = { scale: 1, x: 0, y: 0 };
   let drawingStart: { x: number; y: number } | null = null;
   let tempRect: Konva.Rect | null = null;
+
+  function transformedLayers() {
+    return [imageLayer, annotationLayer, drawingLayer].filter((layer): layer is Konva.Layer =>
+      Boolean(layer),
+    );
+  }
+
+  function applyViewport() {
+    transformedLayers().forEach((layer) => {
+      layer.scale({ x: viewport.scale, y: viewport.scale });
+      layer.position({ x: viewport.x, y: viewport.y });
+      layer.batchDraw();
+    });
+  }
+
+  function resetViewport() {
+    viewport = { scale: 1, x: 0, y: 0 };
+    applyViewport();
+  }
+
+  function clampZoom(scale: number) {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, scale));
+  }
+
+  function screenToContent(x: number, y: number) {
+    return {
+      x: (x - viewport.x) / viewport.scale,
+      y: (y - viewport.y) / viewport.scale,
+    };
+  }
 
   function calculateMetrics(): ImageMetrics | undefined {
     if (!imageEl || props.containerWidth <= 0 || props.containerHeight <= 0) return undefined;
@@ -107,7 +147,8 @@ export default function AnnotationCanvas(props: Props) {
     if (!stage || !metrics) return null;
     const pointer = stage.getPointerPosition();
     if (!pointer) return null;
-    return clampToImage(pointer.x, pointer.y);
+    const contentPointer = screenToContent(pointer.x, pointer.y);
+    return clampToImage(contentPointer.x, contentPointer.y);
   }
 
   function classForId(classId: number) {
@@ -353,6 +394,52 @@ export default function AnnotationCanvas(props: Props) {
     }
   }
 
+  function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {
+    event.evt.preventDefault();
+    if (!stage || !metrics) return;
+
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    const shouldPan =
+      event.evt.shiftKey ||
+      event.evt.altKey ||
+      Math.abs(event.evt.deltaX) > Math.abs(event.evt.deltaY);
+
+    if (shouldPan) {
+      let panX = event.evt.deltaX;
+      let panY = event.evt.deltaY;
+      if (event.evt.shiftKey && !event.evt.deltaX) {
+        panX = event.evt.deltaY;
+        panY = 0;
+      }
+      if (event.evt.altKey && !event.evt.deltaX) {
+        panX = 0;
+        panY = event.evt.deltaY;
+      }
+      viewport = {
+        ...viewport,
+        x: viewport.x - panX,
+        y: viewport.y - panY,
+      };
+      applyViewport();
+      return;
+    }
+
+    const nextScale = clampZoom(
+      event.evt.deltaY < 0 ? viewport.scale * ZOOM_STEP : viewport.scale / ZOOM_STEP,
+    );
+    if (nextScale === viewport.scale) return;
+
+    const contentPointer = screenToContent(pointer.x, pointer.y);
+    viewport = {
+      scale: nextScale,
+      x: pointer.x - contentPointer.x * nextScale,
+      y: pointer.y - contentPointer.y * nextScale,
+    };
+    applyViewport();
+  }
+
   onMount(() => {
     stage = new Konva.Stage({
       container: containerRef!,
@@ -368,6 +455,7 @@ export default function AnnotationCanvas(props: Props) {
     stage.on("mousedown touchstart", startDrawing);
     stage.on("mousemove touchmove", moveDrawing);
     stage.on("mouseup touchend", finishDrawing);
+    stage.on("wheel", handleWheel);
     stage.on("click tap", (event) => {
       if (event.target === stage || event.target === imageNode) selectBox(null);
     });
@@ -380,6 +468,7 @@ export default function AnnotationCanvas(props: Props) {
     if (!stage) return;
     stage.width(width);
     stage.height(height);
+    applyViewport();
     redrawImage();
   });
 
@@ -391,6 +480,7 @@ export default function AnnotationCanvas(props: Props) {
     const img = new Image();
     img.onload = () => {
       imageEl = img;
+      resetViewport();
       redrawImage();
     };
     img.src = src;
