@@ -17,6 +17,8 @@ export interface ImageEntry {
   filename: string;
   fullPath: string;
   annotated: boolean;
+  width: number;
+  height: number;
 }
 
 export interface ProjectState {

@@ -1,21 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { exists, readDir, readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import type { ImageEntry } from "../types";
-
-const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "bmp", "webp"]);
-
-function joinPath(folderPath: string, filename: string) {
-  return `${folderPath.replace(/[\\/]+$/, "")}/${filename}`;
-}
-
-function stem(filename: string) {
-  const dot = filename.lastIndexOf(".");
-  return dot <= 0 ? filename : filename.slice(0, dot);
-}
-
-function labelFilename(imageFilename: string) {
-  return `${stem(imageFilename)}.txt`;
-}
+import type { AnnotationClass, BBox, ImageEntry } from "../types";
 
 export async function pickFolder(title: string): Promise<string | null> {
   const selected = await open({
@@ -30,34 +15,11 @@ export async function loadImagesFromFolder(
   imageFolderPath: string,
   labelFolderPath: string,
 ): Promise<ImageEntry[]> {
-  const entries = await readDir(imageFolderPath);
-  const imageFilenames = entries
-    .filter((entry) => {
-      const filename = entry.name ?? "";
-      const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-      return Boolean(filename) && IMAGE_EXTENSIONS.has(ext);
-    })
-    .map((entry) => entry.name ?? "")
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-
-  return Promise.all(
-    imageFilenames.map(async (filename) => {
-      const labelPath = joinPath(labelFolderPath, labelFilename(filename));
-      const annotated =
-        (await exists(labelPath)) && (await readTextFile(labelPath)).trim().length > 0;
-      return {
-        filename,
-        fullPath: joinPath(imageFolderPath, filename),
-        annotated,
-      };
-    }),
-  );
+  return invoke("load_images_from_folder", { imageFolderPath, labelFolderPath });
 }
 
 export async function readLabelFile(folderPath: string, imageFilename: string): Promise<string> {
-  const path = joinPath(folderPath, labelFilename(imageFilename));
-  if (!(await exists(path))) return "";
-  return readTextFile(path);
+  return invoke("read_label_file", { folderPath, imageFilename });
 }
 
 export async function writeLabelFile(
@@ -65,19 +27,29 @@ export async function writeLabelFile(
   imageFilename: string,
   content: string,
 ): Promise<void> {
-  await writeTextFile(joinPath(folderPath, labelFilename(imageFilename)), content);
+  await invoke("write_label_file", { folderPath, imageFilename, content });
 }
 
 export async function readClassesFile(folderPath: string): Promise<string> {
-  const path = joinPath(folderPath, "classes.txt");
-  if (!(await exists(path))) return "";
-  return readTextFile(path);
+  return invoke("read_classes_file", { folderPath });
 }
 
 export async function writeClassesFile(folderPath: string, content: string): Promise<void> {
-  await writeTextFile(joinPath(folderPath, "classes.txt"), content);
+  await invoke("write_classes_file", { folderPath, content });
 }
 
-export async function writeCocoFile(folderPath: string, content: string): Promise<void> {
-  await writeTextFile(joinPath(folderPath, "annotations.json"), content);
+export async function exportCocoFile(
+  folderPath: string,
+  images: ImageEntry[],
+  classes: AnnotationClass[],
+  currentImageFilename: string,
+  currentBoxes: BBox[],
+): Promise<void> {
+  await invoke("export_coco_file", {
+    folderPath,
+    images,
+    classes,
+    currentImageFilename,
+    currentBoxes,
+  });
 }

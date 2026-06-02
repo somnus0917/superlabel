@@ -33,6 +33,7 @@
   padding: 0 10px;
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
+  overflow: hidden;
 }
 
 button {
@@ -51,10 +52,27 @@ button:disabled {
 .icon-button,
 .save-button {
   height: 30px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 6px;
   padding: 0 10px;
   background: var(--bg-active);
   border-color: var(--border);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.toolbar-button {
+  max-width: 150px;
+}
+
+.toolbar-button span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolbar-button:hover,
@@ -92,6 +110,8 @@ button:disabled {
 .current-file {
   min-width: 180px;
   max-width: 360px;
+  flex: 1 1 260px;
+  height: 30px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -135,6 +155,7 @@ button:disabled {
 
 .toolbar-select {
   height: 30px;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -144,6 +165,8 @@ button:disabled {
   background: var(--bg-active);
   color: var(--text-secondary);
   font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .toolbar-select select {
@@ -157,6 +180,7 @@ button:disabled {
 
 .autosave-toggle {
   height: 30px;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -166,6 +190,8 @@ button:disabled {
   background: var(--bg-active);
   color: var(--text-secondary);
   font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   user-select: none;
 }

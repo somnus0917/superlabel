@@ -20,7 +20,8 @@ export default function Toolbar(props: Props) {
   return (
     <header class="toolbar">
       <button class="toolbar-button" type="button" onClick={props.onOpenFolder}>
-        <span aria-hidden="true">📁</span> {tr(state.language, "openFolders")}
+        <span aria-hidden="true">📁</span>
+        <span>{tr(state.language, "openFolders")}</span>
       </button>
       <div class="toolbar-separator" />
       <button class="icon-button" type="button" onClick={props.onPrev}>
@@ -39,14 +40,16 @@ export default function Toolbar(props: Props) {
         type="button"
         onClick={() => setDrawMode("draw")}
       >
-        ✏️ {tr(state.language, "draw")}
+        <span aria-hidden="true">✏️</span>
+        <span>{tr(state.language, "draw")}</span>
       </button>
       <button
         class={`toolbar-button mode ${state.drawMode === "select" ? "active" : ""}`}
         type="button"
         onClick={() => setDrawMode("select")}
       >
-        ↖ {tr(state.language, "select")}
+        <span aria-hidden="true">↖</span>
+        <span>{tr(state.language, "select")}</span>
       </button>
       <div class="toolbar-spacer" />
       <label class="toolbar-select">
