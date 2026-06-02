@@ -20,7 +20,22 @@
         "resizable": true
       }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "requireLiteralLeadingDot": false,
+          "allow": [
+            "$HOME/**/*",
+            "$DESKTOP/**/*",
+            "$DOCUMENT/**/*",
+            "$DOWNLOAD/**/*",
+            "$PICTURE/**/*"
+          ]
+        }
+      }
+    }
   },
   "bundle": {
     "active": true,

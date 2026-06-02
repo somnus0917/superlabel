@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store";
-import type { BBox, DrawMode, ProjectState } from "../types";
+import type { BBox, DrawMode, Language, ProjectState } from "../types";
 import { DEFAULT_COLORS } from "../utils/yolo";
 
 interface AppStore {
@@ -8,6 +8,8 @@ interface AppStore {
   selectedBoxId: string | null;
   activeClassId: number;
   drawMode: DrawMode;
+  autoSave: boolean;
+  language: Language;
   dirty: boolean;
 }
 
@@ -17,6 +19,8 @@ const initialState: AppStore = {
   selectedBoxId: null,
   activeClassId: 0,
   drawMode: "draw",
+  autoSave: false,
+  language: "en",
   dirty: false,
 };
 
@@ -119,6 +123,14 @@ export function setActiveClass(id: number) {
 
 export function setDrawMode(mode: DrawMode) {
   setState("drawMode", mode);
+}
+
+export function setAutoSave(enabled: boolean) {
+  setState("autoSave", enabled);
+}
+
+export function setLanguage(language: Language) {
+  setState("language", language);
 }
 
 export function markSaved(filename: string) {

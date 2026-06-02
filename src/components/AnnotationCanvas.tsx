@@ -25,6 +25,29 @@ interface ImageMetrics {
   offsetY: number;
 }
 
+type HorizontalResizeEdge = "left" | "center" | "right";
+type VerticalResizeEdge = "top" | "middle" | "bottom";
+
+interface ResizeHandleConfig {
+  id: string;
+  horizontal: HorizontalResizeEdge;
+  vertical: VerticalResizeEdge;
+  cursor: string;
+}
+
+const HANDLE_SIZE = 8;
+const MIN_BOX_SIZE = 8;
+const RESIZE_HANDLES: ResizeHandleConfig[] = [
+  { id: "top-left", horizontal: "left", vertical: "top", cursor: "nwse-resize" },
+  { id: "top", horizontal: "center", vertical: "top", cursor: "ns-resize" },
+  { id: "top-right", horizontal: "right", vertical: "top", cursor: "nesw-resize" },
+  { id: "right", horizontal: "right", vertical: "middle", cursor: "ew-resize" },
+  { id: "bottom-right", horizontal: "right", vertical: "bottom", cursor: "nwse-resize" },
+  { id: "bottom", horizontal: "center", vertical: "bottom", cursor: "ns-resize" },
+  { id: "bottom-left", horizontal: "left", vertical: "bottom", cursor: "nesw-resize" },
+  { id: "left", horizontal: "left", vertical: "middle", cursor: "ew-resize" },
+];
+
 export default function AnnotationCanvas(props: Props) {
   let containerRef: HTMLDivElement | undefined;
   let stage: Konva.Stage | undefined;
@@ -134,37 +157,116 @@ export default function AnnotationCanvas(props: Props) {
       group.add(label);
 
       if (selected) {
-        const handle = new Konva.Rect({
-          x: Math.max(0, pixel.width - 4),
-          y: Math.max(0, pixel.height - 4),
-          width: 8,
-          height: 8,
-          fill: "#ffffff",
-          stroke: color,
-          strokeWidth: 2,
-          draggable: true,
-        });
+        const handles: Array<{ node: Konva.Rect; config: ResizeHandleConfig }> = [];
+        const handleOffset = HANDLE_SIZE / 2;
 
-        handle.on("dragmove", (event) => {
-          event.cancelBubble = true;
-          const nextWidth = Math.max(8, Math.min(metrics!.imgW - pixel.x, handle.x() + 4));
-          const nextHeight = Math.max(8, Math.min(metrics!.imgH - pixel.y, handle.y() + 4));
-          rect.width(nextWidth);
-          rect.height(nextHeight);
-          handle.x(nextWidth - 4);
-          handle.y(nextHeight - 4);
-          annotationLayer?.batchDraw();
-        });
+        function imageBounds() {
+          const left = Math.max(0, Math.min(metrics!.imgW - MIN_BOX_SIZE, group.x() - metrics!.offsetX));
+          const top = Math.max(0, Math.min(metrics!.imgH - MIN_BOX_SIZE, group.y() - metrics!.offsetY));
+          return {
+            left,
+            top,
+            right: Math.min(metrics!.imgW, left + rect.width()),
+            bottom: Math.min(metrics!.imgH, top + rect.height()),
+          };
+        }
 
-        handle.on("dragend", (event) => {
-          event.cancelBubble = true;
+        function handleX(config: ResizeHandleConfig, width: number) {
+          if (config.horizontal === "left") return -handleOffset;
+          if (config.horizontal === "right") return width - handleOffset;
+          return width / 2 - handleOffset;
+        }
+
+        function handleY(config: ResizeHandleConfig, height: number) {
+          if (config.vertical === "top") return -handleOffset;
+          if (config.vertical === "bottom") return height - handleOffset;
+          return height / 2 - handleOffset;
+        }
+
+        function positionHandles() {
+          const width = rect.width();
+          const height = rect.height();
+          handles.forEach(({ node, config }) => {
+            node.position({
+              x: handleX(config, width),
+              y: handleY(config, height),
+            });
+          });
+        }
+
+        function saveResizedBox() {
+          const left = group.x() - metrics!.offsetX;
+          const top = group.y() - metrics!.offsetY;
           updateBox(
             box.id,
-            pixelToYolo(pixel.x, pixel.y, rect.width(), rect.height(), metrics!.imgW, metrics!.imgH),
+            pixelToYolo(left, top, rect.width(), rect.height(), metrics!.imgW, metrics!.imgH),
           );
+        }
+
+        function resizeFromPointer(config: ResizeHandleConfig) {
+          const pointer = pointerInImage();
+          if (!pointer) return;
+
+          let { left, top, right, bottom } = imageBounds();
+
+          if (config.horizontal === "left") {
+            left = Math.max(0, Math.min(pointer.x, right - MIN_BOX_SIZE));
+          }
+          if (config.horizontal === "right") {
+            right = Math.min(metrics!.imgW, Math.max(pointer.x, left + MIN_BOX_SIZE));
+          }
+          if (config.vertical === "top") {
+            top = Math.max(0, Math.min(pointer.y, bottom - MIN_BOX_SIZE));
+          }
+          if (config.vertical === "bottom") {
+            bottom = Math.min(metrics!.imgH, Math.max(pointer.y, top + MIN_BOX_SIZE));
+          }
+
+          group.position({
+            x: metrics!.offsetX + left,
+            y: metrics!.offsetY + top,
+          });
+          rect.size({
+            width: right - left,
+            height: bottom - top,
+          });
+          label.y(Math.max(-20, -metrics!.offsetY - top));
+          positionHandles();
+          annotationLayer?.batchDraw();
+        }
+
+        RESIZE_HANDLES.forEach((config) => {
+          const handle = new Konva.Rect({
+            width: HANDLE_SIZE,
+            height: HANDLE_SIZE,
+            fill: "#ffffff",
+            stroke: color,
+            strokeWidth: 2,
+            draggable: true,
+            name: config.id,
+          });
+
+          handle.on("mouseenter", () => {
+            if (stage) stage.container().style.cursor = config.cursor;
+          });
+          handle.on("mouseleave", () => {
+            if (stage) stage.container().style.cursor = "default";
+          });
+          handle.on("dragmove", (event) => {
+            event.cancelBubble = true;
+            resizeFromPointer(config);
+          });
+          handle.on("dragend", (event) => {
+            event.cancelBubble = true;
+            if (stage) stage.container().style.cursor = "default";
+            saveResizedBox();
+          });
+
+          handles.push({ node: handle, config });
+          group.add(handle);
         });
 
-        group.add(handle);
+        positionHandles();
       }
 
       group.on("click tap", (event) => {

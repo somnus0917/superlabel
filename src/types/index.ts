@@ -20,10 +20,12 @@ export interface ImageEntry {
 }
 
 export interface ProjectState {
-  folderPath: string;
+  imageFolderPath: string;
+  labelFolderPath: string;
   images: ImageEntry[];
   currentIndex: number;
   classes: AnnotationClass[];
 }
 
 export type DrawMode = "draw" | "select";
+export type Language = "en" | "zh";

@@ -6,6 +6,7 @@ import {
   setActiveClass,
   state,
 } from "../stores/app";
+import { tr } from "../utils/i18n";
 
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
@@ -24,7 +25,7 @@ export default function RightPanel() {
     <aside class="right-panel panel">
       <section class="right-section">
         <header class="panel-header">
-          <span>Classes</span>
+          <span>{tr(state.language, "classes")}</span>
         </header>
         <div class="class-list">
           <For each={state.project?.classes ?? []}>
@@ -45,7 +46,7 @@ export default function RightPanel() {
           <input
             value={className()}
             onInput={(event) => setClassName(event.currentTarget.value)}
-            placeholder="New class"
+            placeholder={tr(state.language, "newClass")}
           />
           <button type="submit">+</button>
         </form>
@@ -53,13 +54,13 @@ export default function RightPanel() {
 
       <section class="right-section annotations-section">
         <header class="panel-header">
-          <span>Annotations</span>
+          <span>{tr(state.language, "annotations")}</span>
           <span class="badge">{state.currentBoxes.length}</span>
         </header>
         <div class="annotation-list">
           <Show
             when={state.currentBoxes.length > 0}
-            fallback={<p class="empty-hint">No annotations yet</p>}
+            fallback={<p class="empty-hint">{tr(state.language, "noAnnotations")}</p>}
           >
             <For each={state.currentBoxes}>
               {(box) => {
@@ -69,9 +70,9 @@ export default function RightPanel() {
                     class={`annotation-row ${state.selectedBoxId === box.id ? "active" : ""}`}
                     type="button"
                     onClick={() => selectBox(box.id)}
-                  >
+                    >
                     <span class="swatch" style={{ "background-color": item()?.color ?? "#4a9eff" }} />
-                    <span class="truncate">{item()?.name ?? `Class #${box.classId}`}</span>
+                    <span class="truncate">{item()?.name ?? `${tr(state.language, "classPrefix")} #${box.classId}`}</span>
                     <span
                       class="delete-button"
                       role="button"
@@ -93,14 +94,14 @@ export default function RightPanel() {
 
       <section class="right-section shortcuts-section">
         <header class="panel-header">
-          <span>Shortcuts</span>
+          <span>{tr(state.language, "shortcuts")}</span>
         </header>
         <div class="shortcut-grid">
-          <span>D</span><span>Draw</span>
-          <span>Esc</span><span>Select</span>
-          <span>&larr; &rarr;</span><span>Image</span>
-          <span>Ctrl+S</span><span>Save</span>
-          <span>Del</span><span>Delete</span>
+          <span>D</span><span>{tr(state.language, "draw")}</span>
+          <span>Esc</span><span>{tr(state.language, "select")}</span>
+          <span>&larr; &rarr;</span><span>{tr(state.language, "image")}</span>
+          <span>Ctrl+S</span><span>{tr(state.language, "save")}</span>
+          <span>Del</span><span>{tr(state.language, "delete")}</span>
         </div>
       </section>
     </aside>

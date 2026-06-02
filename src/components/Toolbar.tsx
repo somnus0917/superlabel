@@ -1,4 +1,6 @@
-import { state, setDrawMode } from "../stores/app";
+import { state, setAutoSave, setDrawMode, setLanguage } from "../stores/app";
+import type { Language } from "../types";
+import { tr } from "../utils/i18n";
 
 interface Props {
   onOpenFolder: () => void;
@@ -9,7 +11,7 @@ interface Props {
 
 export default function Toolbar(props: Props) {
   const currentFilename = () =>
-    state.project?.images[state.project.currentIndex]?.filename ?? "No image selected";
+    state.project?.images[state.project.currentIndex]?.filename ?? tr(state.language, "noImageSelected");
   const currentPosition = () => {
     if (!state.project || state.project.images.length === 0) return "0/0";
     return `${state.project.currentIndex + 1}/${state.project.images.length}`;
@@ -18,7 +20,7 @@ export default function Toolbar(props: Props) {
   return (
     <header class="toolbar">
       <button class="toolbar-button" type="button" onClick={props.onOpenFolder}>
-        <span aria-hidden="true">📁</span> Open Folder
+        <span aria-hidden="true">📁</span> {tr(state.language, "openFolders")}
       </button>
       <div class="toolbar-separator" />
       <button class="icon-button" type="button" onClick={props.onPrev}>
@@ -37,22 +39,43 @@ export default function Toolbar(props: Props) {
         type="button"
         onClick={() => setDrawMode("draw")}
       >
-        ✏️ Draw
+        ✏️ {tr(state.language, "draw")}
       </button>
       <button
         class={`toolbar-button mode ${state.drawMode === "select" ? "active" : ""}`}
         type="button"
         onClick={() => setDrawMode("select")}
       >
-        ↖ Select
+        ↖ {tr(state.language, "select")}
       </button>
       <div class="toolbar-spacer" />
+      <label class="language-select">
+        <span>{tr(state.language, "language")}</span>
+        <select
+          value={state.language}
+          onChange={(event) => setLanguage(event.currentTarget.value as Language)}
+        >
+          <option value="en">EN</option>
+          <option value="zh">中文</option>
+        </select>
+      </label>
+      <label class={`autosave-toggle ${state.autoSave ? "active" : ""}`}>
+        <span>{tr(state.language, "autosave")}</span>
+        <input
+          type="checkbox"
+          checked={state.autoSave}
+          onChange={(event) => setAutoSave(event.currentTarget.checked)}
+        />
+        <span class="switch-track" aria-hidden="true">
+          <span class="switch-thumb" />
+        </span>
+      </label>
       <button
         class={`save-button ${state.dirty ? "dirty" : "saved"}`}
         type="button"
         onClick={props.onSave}
       >
-        {state.dirty ? "● Save" : "✓ Saved"}
+        {state.dirty ? `● ${tr(state.language, "save")}` : `✓ ${tr(state.language, "saved")}`}
       </button>
     </header>
   );

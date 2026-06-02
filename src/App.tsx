@@ -20,6 +20,7 @@ import {
   writeClassesFile,
   writeLabelFile,
 } from "./utils/fs";
+import { tr } from "./utils/i18n";
 
 export default function App() {
   let canvasWrapperRef: HTMLDivElement | undefined;
@@ -37,8 +38,8 @@ export default function App() {
     if (!project) return;
     const image = project.images[project.currentIndex];
     if (!image) return;
-    await writeLabelFile(project.folderPath, image.filename, serializeYolo(state.currentBoxes));
-    await writeClassesFile(project.folderPath, serializeClasses(project.classes));
+    await writeLabelFile(project.labelFolderPath, image.filename, serializeYolo(state.currentBoxes));
+    await writeClassesFile(project.labelFolderPath, serializeClasses(project.classes));
     markSaved(image.filename);
   }
 
@@ -66,14 +67,17 @@ export default function App() {
 
   async function handleOpenFolder() {
     await saveIfDirty();
-    const folderPath = await pickFolder();
-    if (!folderPath) return;
+    const imageFolderPath = await pickFolder(tr(state.language, "dialogOpenImageFolder"));
+    if (!imageFolderPath) return;
+    const labelFolderPath = await pickFolder(tr(state.language, "dialogOpenLabelFolder"));
+    if (!labelFolderPath) return;
     const [images, classesText] = await Promise.all([
-      loadImagesFromFolder(folderPath),
-      readClassesFile(folderPath),
+      loadImagesFromFolder(imageFolderPath, labelFolderPath),
+      readClassesFile(labelFolderPath),
     ]);
     openProject({
-      folderPath,
+      imageFolderPath,
+      labelFolderPath,
       images,
       currentIndex: 0,
       classes: parseClasses(classesText),
@@ -119,11 +123,38 @@ export default function App() {
       return;
     }
     void (async () => {
-      const text = await readLabelFile(project.folderPath, image.filename);
-      if (state.project?.folderPath === project.folderPath && state.project.currentIndex === index) {
+      const text = await readLabelFile(project.labelFolderPath, image.filename);
+      if (
+        state.project?.imageFolderPath === project.imageFolderPath &&
+        state.project.labelFolderPath === project.labelFolderPath &&
+        state.project.currentIndex === index
+      ) {
         setCurrentBoxes(parseYolo(text));
       }
     })();
+  });
+
+  createEffect(() => {
+    const project = state.project;
+    const image = project?.images[project.currentIndex];
+    const boxesSignature = state.currentBoxes
+      .map((box) => `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`)
+      .join("|");
+    const classesSignature = project?.classes.map((item) => `${item.id}:${item.name}`).join("|");
+    state.autoSave;
+    state.dirty;
+    boxesSignature;
+    classesSignature;
+
+    if (!state.autoSave || !state.dirty || !project || !image) return;
+
+    const saveTimer = window.setTimeout(() => {
+      void handleSave();
+    }, 600);
+
+    onCleanup(() => {
+      window.clearTimeout(saveTimer);
+    });
   });
 
   return (
@@ -159,9 +190,9 @@ function EmptyState(props: { onOpenFolder: () => void }) {
     <div class="empty-state">
       <div>
         <h1>superlabel</h1>
-        <p>Open a folder with images to start labeling.</p>
+        <p>{tr(state.language, "emptyDescription")}</p>
         <button type="button" onClick={props.onOpenFolder}>
-          Open Folder
+          {tr(state.language, "openFolders")}
         </button>
       </div>
     </div>

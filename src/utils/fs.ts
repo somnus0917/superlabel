@@ -17,17 +17,20 @@ function labelFilename(imageFilename: string) {
   return `${stem(imageFilename)}.txt`;
 }
 
-export async function pickFolder(): Promise<string | null> {
+export async function pickFolder(title: string): Promise<string | null> {
   const selected = await open({
     directory: true,
     multiple: false,
-    title: "Open image folder",
+    title,
   });
   return typeof selected === "string" ? selected : null;
 }
 
-export async function loadImagesFromFolder(folderPath: string): Promise<ImageEntry[]> {
-  const entries = await readDir(folderPath);
+export async function loadImagesFromFolder(
+  imageFolderPath: string,
+  labelFolderPath: string,
+): Promise<ImageEntry[]> {
+  const entries = await readDir(imageFolderPath);
   const imageFilenames = entries
     .filter((entry) => {
       const filename = entry.name ?? "";
@@ -39,12 +42,12 @@ export async function loadImagesFromFolder(folderPath: string): Promise<ImageEnt
 
   return Promise.all(
     imageFilenames.map(async (filename) => {
-      const labelPath = joinPath(folderPath, labelFilename(filename));
+      const labelPath = joinPath(labelFolderPath, labelFilename(filename));
       const annotated =
         (await exists(labelPath)) && (await readTextFile(labelPath)).trim().length > 0;
       return {
         filename,
-        fullPath: joinPath(folderPath, filename),
+        fullPath: joinPath(imageFolderPath, filename),
         annotated,
       };
     }),
