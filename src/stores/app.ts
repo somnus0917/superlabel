@@ -14,6 +14,8 @@ interface AppStore {
   currentBoxes: BBox[];
   suggestedBoxes: BBox[];
   suggestedBoxesByImage: Record<string, BBox[]>;
+  undoStack: BoxesHistorySnapshot[];
+  redoStack: BoxesHistorySnapshot[];
   selectedBoxId: string | null;
   activeClassId: number;
   drawMode: DrawMode;
@@ -30,11 +32,20 @@ interface AppStore {
   dirty: boolean;
 }
 
+interface BoxesHistorySnapshot {
+  boxes: BBox[];
+  selectedBoxId: string | null;
+}
+
+const MAX_HISTORY = 100;
+
 const initialState: AppStore = {
   project: null,
   currentBoxes: [],
   suggestedBoxes: [],
   suggestedBoxesByImage: {},
+  undoStack: [],
+  redoStack: [],
   selectedBoxId: null,
   activeClassId: 0,
   drawMode: "draw",
@@ -65,6 +76,8 @@ export function openProject(project: ProjectState) {
     currentBoxes: [],
     suggestedBoxes: [],
     suggestedBoxesByImage: {},
+    undoStack: [],
+    redoStack: [],
     selectedBoxId: null,
     activeClassId: project.classes[0]?.id ?? 0,
     drawMode: "draw",
@@ -78,6 +91,8 @@ export function setCurrentBoxes(boxes: BBox[], imageFilename?: string) {
     suggestedBoxes: imageFilename
       ? (state.suggestedBoxesByImage[imageFilename] ?? [])
       : [],
+    undoStack: [],
+    redoStack: [],
     selectedBoxId: null,
     dirty: false,
   });
@@ -98,6 +113,7 @@ export function goToImage(index: number) {
       draft.suggestedBoxes = image
         ? (draft.suggestedBoxesByImage[image.filename] ?? [])
         : [];
+      clearBoxesHistory(draft);
       draft.selectedBoxId = null;
       draft.dirty = false;
     }),
@@ -107,6 +123,7 @@ export function goToImage(index: number) {
 export function addBox(box: BBox) {
   setState(
     produce((draft) => {
+      pushUndoSnapshot(draft);
       draft.currentBoxes.push(box);
       draft.selectedBoxId = box.id;
       draft.dirty = true;
@@ -118,6 +135,7 @@ export function addBoxes(boxes: BBox[]) {
   if (boxes.length === 0) return;
   setState(
     produce((draft) => {
+      pushUndoSnapshot(draft);
       const nextBoxes = withUniqueBoxIds(boxes);
       draft.currentBoxes.push(...nextBoxes);
       draft.selectedBoxId = nextBoxes[nextBoxes.length - 1].id;
@@ -146,6 +164,7 @@ export function acceptSuggestedBoxes() {
   const filename = currentImageFilename();
   setState(
     produce((draft) => {
+      pushUndoSnapshot(draft);
       const nextBoxes = withUniqueBoxIds(draft.suggestedBoxes);
       draft.currentBoxes.push(...nextBoxes);
       draft.suggestedBoxes = [];
@@ -175,6 +194,8 @@ export function updateBox(id: string, patch: Partial<BBox>) {
     produce((draft) => {
       const box = draft.currentBoxes.find((item) => item.id === id);
       if (!box) return;
+      if (!boxChanged(box, patch)) return;
+      pushUndoSnapshot(draft);
       Object.assign(box, patch);
       draft.dirty = true;
     }),
@@ -184,6 +205,8 @@ export function updateBox(id: string, patch: Partial<BBox>) {
 export function deleteBox(id: string) {
   setState(
     produce((draft) => {
+      if (!draft.currentBoxes.some((item) => item.id === id)) return;
+      pushUndoSnapshot(draft);
       draft.currentBoxes = draft.currentBoxes.filter((item) => item.id !== id);
       if (draft.selectedBoxId === id) {
         draft.selectedBoxId = null;
@@ -195,6 +218,32 @@ export function deleteBox(id: string) {
 
 export function selectBox(id: string | null) {
   setState("selectedBoxId", id);
+}
+
+export function undoBoxes() {
+  setState(
+    produce((draft) => {
+      const snapshot = draft.undoStack.pop();
+      if (!snapshot) return;
+      draft.redoStack.push(createBoxesSnapshot(draft));
+      draft.currentBoxes = cloneBoxes(snapshot.boxes);
+      draft.selectedBoxId = snapshot.selectedBoxId;
+      draft.dirty = true;
+    }),
+  );
+}
+
+export function redoBoxes() {
+  setState(
+    produce((draft) => {
+      const snapshot = draft.redoStack.pop();
+      if (!snapshot) return;
+      draft.undoStack.push(createBoxesSnapshot(draft));
+      draft.currentBoxes = cloneBoxes(snapshot.boxes);
+      draft.selectedBoxId = snapshot.selectedBoxId;
+      draft.dirty = true;
+    }),
+  );
 }
 
 export function addClass(name: string) {
@@ -307,6 +356,38 @@ function withUniqueBoxIds(boxes: BBox[], prefix = "box") {
     ...box,
     id: `${prefix}-${box.id}-${timestamp}-${index}`,
   }));
+}
+
+function pushUndoSnapshot(draft: AppStore) {
+  draft.undoStack.push(createBoxesSnapshot(draft));
+  if (draft.undoStack.length > MAX_HISTORY) {
+    draft.undoStack.shift();
+  }
+  draft.redoStack = [];
+}
+
+function createBoxesSnapshot(
+  stateLike: Pick<AppStore, "currentBoxes" | "selectedBoxId">,
+) {
+  return {
+    boxes: cloneBoxes(stateLike.currentBoxes),
+    selectedBoxId: stateLike.selectedBoxId,
+  };
+}
+
+function cloneBoxes(boxes: BBox[]) {
+  return boxes.map((box) => ({ ...box }));
+}
+
+function clearBoxesHistory(draft: AppStore) {
+  draft.undoStack = [];
+  draft.redoStack = [];
+}
+
+function boxChanged(box: BBox, patch: Partial<BBox>) {
+  return Object.entries(patch).some(
+    ([key, value]) => box[key as keyof BBox] !== value,
+  );
 }
 
 function currentImageFilename() {

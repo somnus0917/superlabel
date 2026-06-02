@@ -19,6 +19,7 @@ import {
   setRightPanelTab,
   setSuggestedBoxes,
   state,
+  updateBox,
 } from "../stores/app";
 import type { Language, OutputFormat, RightPanelTab } from "../types";
 import { pickOnnxModel, runOnnxDetection } from "../utils/fs";
@@ -169,6 +170,11 @@ export default function RightPanel() {
     setOnnxStatus(tr(state.language, "suggestionsCleared"));
   }
 
+  function changeBoxClass(boxId: string, classId: number) {
+    selectBox(boxId);
+    updateBox(boxId, { classId });
+  }
+
   return (
     <aside class="right-panel panel">
       <nav class="panel-tabs">
@@ -275,9 +281,10 @@ export default function RightPanel() {
                   {(box) => {
                     const item = () => classForId(box.classId);
                     return (
-                      <button
+                      <div
                         class={`annotation-row ${state.selectedBoxId === box.id ? "active" : ""}`}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => selectBox(box.id)}
                       >
                         <span
@@ -286,10 +293,30 @@ export default function RightPanel() {
                             "background-color": item()?.color ?? "#4a9eff",
                           }}
                         />
-                        <span class="truncate">
-                          {item()?.name ??
-                            `${tr(state.language, "classPrefix")} #${box.classId}`}
-                        </span>
+                        <select
+                          class="annotation-class-select"
+                          value={box.classId}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            changeBoxClass(
+                              box.id,
+                              Number(event.currentTarget.value),
+                            )
+                          }
+                        >
+                          <For each={state.project?.classes ?? []}>
+                            {(annotationClass) => (
+                              <option value={annotationClass.id}>
+                                #{annotationClass.id} {annotationClass.name}
+                              </option>
+                            )}
+                          </For>
+                          <Show when={!item()}>
+                            <option value={box.classId}>
+                              {tr(state.language, "classPrefix")} #{box.classId}
+                            </option>
+                          </Show>
+                        </select>
                         <span
                           class="delete-button"
                           role="button"
@@ -301,7 +328,7 @@ export default function RightPanel() {
                         >
                           x
                         </span>
-                      </button>
+                      </div>
                     );
                   }}
                 </For>
@@ -522,6 +549,10 @@ export default function RightPanel() {
                 <span>{tr(state.language, "image")}</span>
                 <span>Ctrl+S</span>
                 <span>{tr(state.language, "save")}</span>
+                <span>Ctrl/Cmd+Z</span>
+                <span>{tr(state.language, "undo")}</span>
+                <span>Ctrl/Cmd+Shift+Z</span>
+                <span>{tr(state.language, "redo")}</span>
                 <span>Del</span>
                 <span>{tr(state.language, "delete")}</span>
               </div>

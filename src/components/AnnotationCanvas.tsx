@@ -3,9 +3,11 @@ import { createEffect, onCleanup, onMount } from "solid-js";
 import {
   addBox,
   deleteBox,
+  redoBoxes,
   selectBox,
   setDrawMode,
   state,
+  undoBoxes,
   updateBox,
 } from "../stores/app";
 import { pixelToYolo, yoloToPixel } from "../utils/yolo";
@@ -509,7 +511,25 @@ export default function AnnotationCanvas(props: Props) {
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (isEditableTarget(event.target)) return;
     const key = event.key.toLowerCase();
+    const commandKey = event.ctrlKey || event.metaKey;
+
+    if (commandKey && key === "z") {
+      event.preventDefault();
+      if (event.shiftKey) {
+        redoBoxes();
+      } else {
+        undoBoxes();
+      }
+      return;
+    }
+    if (event.ctrlKey && key === "y") {
+      event.preventDefault();
+      redoBoxes();
+      return;
+    }
+
     if (key === "d") setDrawMode("draw");
     if (event.key === "Escape") setDrawMode("select");
     if (
@@ -642,4 +662,15 @@ export default function AnnotationCanvas(props: Props) {
   });
 
   return <div ref={containerRef} class="annotation-canvas" />;
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
 }

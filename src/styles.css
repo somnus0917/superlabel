@@ -602,6 +602,18 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.annotation-class-select {
+  min-width: 0;
+  flex: 1;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: #171717;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
 .delete-button:hover {
   background: #3a2424;
   color: #ff8888;
@@ -615,7 +627,7 @@ button:disabled {
 
 .shortcut-grid {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 116px 1fr;
   gap: 8px 12px;
   padding: 12px;
   color: var(--text-secondary);
