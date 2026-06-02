@@ -4,8 +4,11 @@ use std::{
     cmp::Ordering,
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
-use tauri::Manager;
+use tauri::{Manager, State};
+use tract_onnx::prelude::*;
+use tract_onnx::tract_core::dims;
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "bmp", "webp"];
 
@@ -38,6 +41,36 @@ struct ImageEntry {
     height: u32,
 }
 
+#[derive(Debug, Clone)]
+struct DetectionCandidate {
+    class_id: u32,
+    confidence: f32,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+struct Letterbox {
+    scale: f32,
+    pad_x: f32,
+    pad_y: f32,
+    original_width: f32,
+    original_height: f32,
+    input_size: u32,
+}
+
+struct CachedOnnxModel {
+    path: String,
+    input_size: u32,
+    model: Arc<TypedRunnableModel>,
+}
+
+#[derive(Default)]
+struct OnnxState {
+    cached_model: Mutex<Option<CachedOnnxModel>>,
+}
+
 #[tauri::command]
 fn load_images_from_folder(
     image_folder_path: String,
@@ -65,8 +98,8 @@ fn load_images_from_folder(
             let annotated = read_optional_string(&label_path)
                 .map(|content| !content.trim().is_empty())
                 .unwrap_or(false);
-            let (width, height) = image_dimensions(&full_path)
-                .map_err(|err| format!("{}: {}", filename, err))?;
+            let (width, height) =
+                image_dimensions(&full_path).map_err(|err| format!("{}: {}", filename, err))?;
 
             Ok(ImageEntry {
                 filename,
@@ -131,7 +164,10 @@ fn export_coco_file(
         let boxes = if image.filename == current_image_filename {
             current_boxes.clone()
         } else {
-            parse_yolo(&read_label_file(folder_path.clone(), image.filename.clone())?)
+            parse_yolo(&read_label_file(
+                folder_path.clone(),
+                image.filename.clone(),
+            )?)
         };
 
         for bbox in boxes {
@@ -172,6 +208,96 @@ fn export_coco_file(
     .map_err(|err| err.to_string())?;
 
     atomic_write(Path::new(&folder_path).join("annotations.json"), content)
+}
+
+#[tauri::command]
+fn run_onnx_detection(
+    state: State<'_, OnnxState>,
+    model_path: String,
+    image_path: String,
+    input_size: u32,
+    confidence: f32,
+    nms: f32,
+    class_count: usize,
+) -> Result<Vec<BBox>, String> {
+    let input_size = input_size.max(32);
+    let (input_tensor, letterbox) = prepare_onnx_input(&image_path, input_size)?;
+    let model = cached_onnx_model(&state, &model_path, input_size)?;
+
+    let outputs = model
+        .run(tvec!(input_tensor.into_tvalue()))
+        .map_err(|err| err.to_string())?;
+    let output = outputs
+        .first()
+        .ok_or_else(|| "model returned no output".to_string())?
+        .to_plain_array_view::<f32>()
+        .map_err(|err| err.to_string())?;
+
+    let mut candidates = decode_yolo_output(
+        output.shape(),
+        output.as_slice().ok_or("non-contiguous output")?,
+        confidence,
+        class_count,
+        &letterbox,
+    )?;
+    candidates.sort_by(|left, right| {
+        right
+            .confidence
+            .partial_cmp(&left.confidence)
+            .unwrap_or(Ordering::Equal)
+    });
+    let detections = nms_detections(candidates, nms);
+
+    Ok(detections
+        .into_iter()
+        .enumerate()
+        .map(|(index, detection)| BBox {
+            id: format!("onnx-{}-{}", detection.class_id, index),
+            class_id: detection.class_id,
+            cx: clamp01((detection.x + detection.width / 2.0) as f64),
+            cy: clamp01((detection.y + detection.height / 2.0) as f64),
+            w: clamp01(detection.width as f64),
+            h: clamp01(detection.height as f64),
+        })
+        .collect())
+}
+
+fn cached_onnx_model(
+    state: &State<'_, OnnxState>,
+    model_path: &str,
+    input_size: u32,
+) -> Result<Arc<TypedRunnableModel>, String> {
+    let mut cached_model = state
+        .cached_model
+        .lock()
+        .map_err(|_| "ONNX model cache is unavailable".to_string())?;
+
+    if let Some(cached) = cached_model.as_ref() {
+        if cached.path == model_path && cached.input_size == input_size {
+            return Ok(Arc::clone(&cached.model));
+        }
+    }
+
+    let model = tract_onnx::onnx()
+        .model_for_path(model_path)
+        .map_err(|err| err.to_string())?
+        .with_input_fact(
+            0,
+            f32::fact(dims!(1, 3, input_size as usize, input_size as usize)).into(),
+        )
+        .map_err(|err| err.to_string())?
+        .into_optimized()
+        .map_err(|err| err.to_string())?
+        .into_runnable()
+        .map_err(|err| err.to_string())?;
+
+    *cached_model = Some(CachedOnnxModel {
+        path: model_path.to_string(),
+        input_size,
+        model: Arc::clone(&model),
+    });
+
+    Ok(model)
 }
 
 fn is_image_file(path: &Path) -> bool {
@@ -285,7 +411,275 @@ fn clamp01(value: f64) -> f64 {
 fn yolo_to_pixel(cx: f64, cy: f64, w: f64, h: f64, img_w: u32, img_h: u32) -> (f64, f64, f64, f64) {
     let img_w = img_w as f64;
     let img_h = img_h as f64;
-    ((cx - w / 2.0) * img_w, (cy - h / 2.0) * img_h, w * img_w, h * img_h)
+    (
+        (cx - w / 2.0) * img_w,
+        (cy - h / 2.0) * img_h,
+        w * img_w,
+        h * img_h,
+    )
+}
+
+fn prepare_onnx_input(image_path: &str, input_size: u32) -> Result<(Tensor, Letterbox), String> {
+    let image = image::open(image_path)
+        .map_err(|err| err.to_string())?
+        .to_rgb8();
+    let (original_width, original_height) = image.dimensions();
+    let scale =
+        (input_size as f32 / original_width as f32).min(input_size as f32 / original_height as f32);
+    let resized_width = (original_width as f32 * scale).round().max(1.0) as u32;
+    let resized_height = (original_height as f32 * scale).round().max(1.0) as u32;
+    let pad_x = ((input_size - resized_width) / 2) as f32;
+    let pad_y = ((input_size - resized_height) / 2) as f32;
+
+    let resized = image::imageops::resize(
+        &image,
+        resized_width,
+        resized_height,
+        image::imageops::FilterType::Triangle,
+    );
+    let mut values = vec![114.0f32 / 255.0; (3 * input_size * input_size) as usize];
+
+    for y in 0..resized_height {
+        for x in 0..resized_width {
+            let pixel = resized.get_pixel(x, y);
+            let dst_x = x + pad_x as u32;
+            let dst_y = y + pad_y as u32;
+            let plane_size = (input_size * input_size) as usize;
+            let offset = (dst_y * input_size + dst_x) as usize;
+            values[offset] = pixel[0] as f32 / 255.0;
+            values[plane_size + offset] = pixel[1] as f32 / 255.0;
+            values[2 * plane_size + offset] = pixel[2] as f32 / 255.0;
+        }
+    }
+
+    let tensor = Tensor::from_shape(&[1, 3, input_size as usize, input_size as usize], &values)
+        .map_err(|err| err.to_string())?;
+
+    Ok((
+        tensor,
+        Letterbox {
+            scale,
+            pad_x,
+            pad_y,
+            original_width: original_width as f32,
+            original_height: original_height as f32,
+            input_size,
+        },
+    ))
+}
+
+fn decode_yolo_output(
+    shape: &[usize],
+    values: &[f32],
+    confidence_threshold: f32,
+    class_count: usize,
+    letterbox: &Letterbox,
+) -> Result<Vec<DetectionCandidate>, String> {
+    if shape.len() != 3 || shape[0] != 1 {
+        return Err(format!("unsupported output shape: {:?}", shape));
+    }
+
+    let dim1 = shape[1];
+    let dim2 = shape[2];
+    let dim1_attr_score = yolo_attr_score(dim1, dim2, class_count);
+    let dim2_attr_score = yolo_attr_score(dim2, dim1, class_count);
+
+    if dim2_attr_score >= dim1_attr_score && dim2_attr_score > 0 {
+        Ok(decode_yolo_rows(
+            values,
+            dim1,
+            dim2,
+            |row, col| values[row * dim2 + col],
+            confidence_threshold,
+            class_count,
+            letterbox,
+        ))
+    } else if dim1_attr_score > 0 {
+        Ok(decode_yolo_rows(
+            values,
+            dim2,
+            dim1,
+            |row, col| values[col * dim2 + row],
+            confidence_threshold,
+            class_count,
+            letterbox,
+        ))
+    } else {
+        Err(format!("unsupported output shape: {:?}", shape))
+    }
+}
+
+fn yolo_attr_score(candidate_attrs: usize, candidate_rows: usize, class_count: usize) -> u8 {
+    if candidate_attrs < 5 {
+        return 0;
+    }
+    if class_count > 0 && (candidate_attrs == class_count + 4 || candidate_attrs == class_count + 5)
+    {
+        return 4;
+    }
+    if candidate_attrs <= 128 && candidate_rows > candidate_attrs {
+        return 2;
+    }
+    if candidate_attrs <= 512 {
+        return 1;
+    }
+    0
+}
+
+fn yolo_has_objectness(attrs: usize, class_count: usize) -> bool {
+    if class_count > 0 {
+        if attrs == class_count + 5 {
+            return true;
+        }
+        if attrs == class_count + 4 {
+            return false;
+        }
+    }
+    attrs == 6 || attrs == 85
+}
+
+fn decode_yolo_rows<F>(
+    _values: &[f32],
+    rows: usize,
+    attrs: usize,
+    value_at: F,
+    confidence_threshold: f32,
+    class_count: usize,
+    letterbox: &Letterbox,
+) -> Vec<DetectionCandidate>
+where
+    F: Fn(usize, usize) -> f32,
+{
+    let has_objectness = yolo_has_objectness(attrs, class_count);
+    let class_start = if has_objectness { 5 } else { 4 };
+    let mut detections = Vec::new();
+
+    for row in 0..rows {
+        if attrs <= class_start {
+            continue;
+        }
+
+        let cx = value_at(row, 0);
+        let cy = value_at(row, 1);
+        let width = value_at(row, 2);
+        let height = value_at(row, 3);
+        let objectness = if has_objectness {
+            value_at(row, 4)
+        } else {
+            1.0
+        };
+
+        let mut best_class = 0usize;
+        let mut best_score = 0.0f32;
+        for class_index in class_start..attrs {
+            let score = value_at(row, class_index);
+            if score > best_score {
+                best_score = score;
+                best_class = class_index - class_start;
+            }
+        }
+
+        let confidence = objectness * best_score;
+        if confidence < confidence_threshold {
+            continue;
+        }
+
+        if let Some(candidate) = candidate_from_model_box(
+            cx,
+            cy,
+            width,
+            height,
+            best_class as u32,
+            confidence,
+            letterbox,
+        ) {
+            detections.push(candidate);
+        }
+    }
+
+    detections
+}
+
+fn candidate_from_model_box(
+    cx: f32,
+    cy: f32,
+    width: f32,
+    height: f32,
+    class_id: u32,
+    confidence: f32,
+    letterbox: &Letterbox,
+) -> Option<DetectionCandidate> {
+    let scale_factor = if cx <= 1.5 && cy <= 1.5 && width <= 1.5 && height <= 1.5 {
+        letterbox.input_size as f32
+    } else {
+        1.0
+    };
+
+    let left = cx * scale_factor - width * scale_factor / 2.0;
+    let top = cy * scale_factor - height * scale_factor / 2.0;
+    let box_width = width * scale_factor;
+    let box_height = height * scale_factor;
+
+    let x = (left - letterbox.pad_x) / letterbox.scale;
+    let y = (top - letterbox.pad_y) / letterbox.scale;
+    let w = box_width / letterbox.scale;
+    let h = box_height / letterbox.scale;
+
+    let x1 = x.max(0.0).min(letterbox.original_width);
+    let y1 = y.max(0.0).min(letterbox.original_height);
+    let x2 = (x + w).max(0.0).min(letterbox.original_width);
+    let y2 = (y + h).max(0.0).min(letterbox.original_height);
+    let final_width = x2 - x1;
+    let final_height = y2 - y1;
+
+    if final_width <= 1.0 || final_height <= 1.0 {
+        return None;
+    }
+
+    Some(DetectionCandidate {
+        class_id,
+        confidence,
+        x: x1 / letterbox.original_width,
+        y: y1 / letterbox.original_height,
+        width: final_width / letterbox.original_width,
+        height: final_height / letterbox.original_height,
+    })
+}
+
+fn nms_detections(
+    mut detections: Vec<DetectionCandidate>,
+    threshold: f32,
+) -> Vec<DetectionCandidate> {
+    let mut kept = Vec::new();
+    while let Some(candidate) = detections.first().cloned() {
+        detections.remove(0);
+        detections.retain(|other| {
+            other.class_id != candidate.class_id || bbox_iou(&candidate, other) < threshold
+        });
+        kept.push(candidate);
+    }
+    kept
+}
+
+fn bbox_iou(left: &DetectionCandidate, right: &DetectionCandidate) -> f32 {
+    let left_x2 = left.x + left.width;
+    let left_y2 = left.y + left.height;
+    let right_x2 = right.x + right.width;
+    let right_y2 = right.y + right.height;
+
+    let inter_x1 = left.x.max(right.x);
+    let inter_y1 = left.y.max(right.y);
+    let inter_x2 = left_x2.min(right_x2);
+    let inter_y2 = left_y2.min(right_y2);
+    let inter_w = (inter_x2 - inter_x1).max(0.0);
+    let inter_h = (inter_y2 - inter_y1).max(0.0);
+    let inter_area = inter_w * inter_h;
+    let union_area = left.width * left.height + right.width * right.height - inter_area;
+    if union_area <= 0.0 {
+        0.0
+    } else {
+        inter_area / union_area
+    }
 }
 
 fn round3(value: f64) -> f64 {
@@ -344,7 +738,18 @@ fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
         let is_sof = matches!(
             marker,
-            0xc0 | 0xc1 | 0xc2 | 0xc3 | 0xc5 | 0xc6 | 0xc7 | 0xc9 | 0xca | 0xcb | 0xcd | 0xce | 0xcf
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
         );
         if is_sof && segment_len >= 7 {
             let height = u16::from_be_bytes([bytes[index + 3], bytes[index + 4]]) as u32;
@@ -416,6 +821,7 @@ fn read_u24_le(bytes: &[u8]) -> Option<u32> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(OnnxState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             load_images_from_folder,
@@ -424,6 +830,7 @@ pub fn run() {
             read_classes_file,
             write_classes_file,
             export_coco_file,
+            run_onnx_detection,
         ])
         .setup(|app| {
             #[cfg(debug_assertions)]

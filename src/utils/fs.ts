@@ -25,10 +25,16 @@ export async function loadImagesFromFolder(
   imageFolderPath: string,
   labelFolderPath: string,
 ): Promise<ImageEntry[]> {
-  return invoke("load_images_from_folder", { imageFolderPath, labelFolderPath });
+  return invoke("load_images_from_folder", {
+    imageFolderPath,
+    labelFolderPath,
+  });
 }
 
-export async function readLabelFile(folderPath: string, imageFilename: string): Promise<string> {
+export async function readLabelFile(
+  folderPath: string,
+  imageFilename: string,
+): Promise<string> {
   return invoke("read_label_file", { folderPath, imageFilename });
 }
 
@@ -44,7 +50,10 @@ export async function readClassesFile(folderPath: string): Promise<string> {
   return invoke("read_classes_file", { folderPath });
 }
 
-export async function writeClassesFile(folderPath: string, content: string): Promise<void> {
+export async function writeClassesFile(
+  folderPath: string,
+  content: string,
+): Promise<void> {
   await invoke("write_classes_file", { folderPath, content });
 }
 
@@ -61,5 +70,23 @@ export async function exportCocoFile(
     classes,
     currentImageFilename,
     currentBoxes,
+  });
+}
+
+export async function runOnnxDetection(
+  modelPath: string,
+  imagePath: string,
+  inputSize: number,
+  confidence: number,
+  nms: number,
+  classCount: number,
+): Promise<BBox[]> {
+  return invoke("run_onnx_detection", {
+    modelPath,
+    imagePath,
+    inputSize,
+    confidence,
+    nms,
+    classCount,
   });
 }

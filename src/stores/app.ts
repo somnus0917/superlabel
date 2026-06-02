@@ -1,10 +1,18 @@
 import { createStore, produce } from "solid-js/store";
-import type { BBox, DrawMode, Language, OutputFormat, ProjectState, RightPanelTab } from "../types";
+import type {
+  BBox,
+  DrawMode,
+  Language,
+  OutputFormat,
+  ProjectState,
+  RightPanelTab,
+} from "../types";
 import { DEFAULT_COLORS } from "../utils/yolo";
 
 interface AppStore {
   project: ProjectState | null;
   currentBoxes: BBox[];
+  suggestedBoxes: BBox[];
   selectedBoxId: string | null;
   activeClassId: number;
   drawMode: DrawMode;
@@ -22,6 +30,7 @@ interface AppStore {
 const initialState: AppStore = {
   project: null,
   currentBoxes: [],
+  suggestedBoxes: [],
   selectedBoxId: null,
   activeClassId: 0,
   drawMode: "draw",
@@ -42,9 +51,13 @@ export function openProject(project: ProjectState) {
   setState({
     project: {
       ...project,
-      currentIndex: Math.min(project.currentIndex, Math.max(project.images.length - 1, 0)),
+      currentIndex: Math.min(
+        project.currentIndex,
+        Math.max(project.images.length - 1, 0),
+      ),
     },
     currentBoxes: [],
+    suggestedBoxes: [],
     selectedBoxId: null,
     activeClassId: project.classes[0]?.id ?? 0,
     drawMode: "draw",
@@ -55,6 +68,7 @@ export function openProject(project: ProjectState) {
 export function setCurrentBoxes(boxes: BBox[]) {
   setState({
     currentBoxes: boxes,
+    suggestedBoxes: [],
     selectedBoxId: null,
     dirty: false,
   });
@@ -62,12 +76,16 @@ export function setCurrentBoxes(boxes: BBox[]) {
 
 export function goToImage(index: number) {
   if (!state.project) return;
-  const nextIndex = Math.max(0, Math.min(index, state.project.images.length - 1));
+  const nextIndex = Math.max(
+    0,
+    Math.min(index, state.project.images.length - 1),
+  );
   setState(
     produce((draft) => {
       if (!draft.project) return;
       draft.project.currentIndex = nextIndex;
       draft.currentBoxes = [];
+      draft.suggestedBoxes = [];
       draft.selectedBoxId = null;
       draft.dirty = false;
     }),
@@ -82,6 +100,39 @@ export function addBox(box: BBox) {
       draft.dirty = true;
     }),
   );
+}
+
+export function addBoxes(boxes: BBox[]) {
+  if (boxes.length === 0) return;
+  setState(
+    produce((draft) => {
+      const nextBoxes = withUniqueBoxIds(boxes);
+      draft.currentBoxes.push(...nextBoxes);
+      draft.selectedBoxId = nextBoxes[nextBoxes.length - 1].id;
+      draft.dirty = true;
+    }),
+  );
+}
+
+export function setSuggestedBoxes(boxes: BBox[]) {
+  setState("suggestedBoxes", withUniqueBoxIds(boxes, "suggestion"));
+}
+
+export function acceptSuggestedBoxes() {
+  if (state.suggestedBoxes.length === 0) return;
+  setState(
+    produce((draft) => {
+      const nextBoxes = withUniqueBoxIds(draft.suggestedBoxes);
+      draft.currentBoxes.push(...nextBoxes);
+      draft.suggestedBoxes = [];
+      draft.selectedBoxId = nextBoxes[nextBoxes.length - 1].id;
+      draft.dirty = true;
+    }),
+  );
+}
+
+export function clearSuggestedBoxes() {
+  setState("suggestedBoxes", []);
 }
 
 export function updateBox(id: string, patch: Partial<BBox>) {
@@ -134,7 +185,9 @@ export function renameClass(id: number, name: string) {
   if (!trimmed || !state.project) return;
   setState(
     produce((draft) => {
-      const annotationClass = draft.project?.classes.find((item) => item.id === id);
+      const annotationClass = draft.project?.classes.find(
+        (item) => item.id === id,
+      );
       if (!annotationClass || annotationClass.name === trimmed) return;
       annotationClass.name = trimmed;
       draft.dirty = true;
@@ -189,7 +242,9 @@ export function markSaved(filename: string) {
   setState(
     produce((draft) => {
       if (draft.project) {
-        const image = draft.project.images.find((item) => item.filename === filename);
+        const image = draft.project.images.find(
+          (item) => item.filename === filename,
+        );
         if (image) {
           image.annotated = draft.currentBoxes.length > 0;
         }
@@ -197,4 +252,12 @@ export function markSaved(filename: string) {
       draft.dirty = false;
     }),
   );
+}
+
+function withUniqueBoxIds(boxes: BBox[], prefix = "box") {
+  const timestamp = Date.now();
+  return boxes.map((box, index) => ({
+    ...box,
+    id: `${prefix}-${box.id}-${timestamp}-${index}`,
+  }));
 }

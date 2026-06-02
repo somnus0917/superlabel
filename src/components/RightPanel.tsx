@@ -1,6 +1,8 @@
 import { createSignal, For, Show } from "solid-js";
 import {
   addClass,
+  acceptSuggestedBoxes,
+  clearSuggestedBoxes,
   deleteBox,
   renameClass,
   selectBox,
@@ -13,18 +15,26 @@ import {
   setOnnxNms,
   setOutputFormat,
   setRightPanelTab,
+  setSuggestedBoxes,
   state,
 } from "../stores/app";
 import type { Language, OutputFormat, RightPanelTab } from "../types";
-import { pickOnnxModel } from "../utils/fs";
+import { pickOnnxModel, runOnnxDetection } from "../utils/fs";
 import { tr } from "../utils/i18n";
 
-const PANEL_TABS: RightPanelTab[] = ["classes", "annotations", "assist", "export"];
+const PANEL_TABS: RightPanelTab[] = [
+  "classes",
+  "annotations",
+  "assist",
+  "export",
+];
 
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
   const [editingClassId, setEditingClassId] = createSignal<number | null>(null);
   const [editingClassName, setEditingClassName] = createSignal("");
+  const [isRunningOnnx, setIsRunningOnnx] = createSignal(false);
+  const [onnxStatus, setOnnxStatus] = createSignal("");
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -56,7 +66,9 @@ export default function RightPanel() {
   }
 
   async function chooseOnnxModel() {
-    const modelPath = await pickOnnxModel(tr(state.language, "dialogOpenOnnxModel"));
+    const modelPath = await pickOnnxModel(
+      tr(state.language, "dialogOpenOnnxModel"),
+    );
     if (modelPath) {
       setOnnxModelPath(modelPath);
     }
@@ -67,11 +79,52 @@ export default function RightPanel() {
     return state.onnxModelPath.split(/[\\/]/).pop() ?? state.onnxModelPath;
   }
 
+  async function runCurrentImageDetection() {
+    const project = state.project;
+    const image = project?.images[project.currentIndex];
+    if (!state.onnxModelPath || !image || isRunningOnnx()) return;
+
+    setIsRunningOnnx(true);
+    setOnnxStatus(tr(state.language, "inferenceRunning"));
+    try {
+      const boxes = await runOnnxDetection(
+        state.onnxModelPath,
+        image.fullPath,
+        state.onnxInputSize,
+        state.onnxConfidence,
+        state.onnxNms,
+        project.classes.length,
+      );
+      setSuggestedBoxes(boxes);
+      setOnnxStatus(
+        `${boxes.length} ${tr(state.language, "suggestionsReady")}`,
+      );
+    } catch (error) {
+      setOnnxStatus(
+        `${tr(state.language, "inferenceFailed")}: ${String(error)}`,
+      );
+    } finally {
+      setIsRunningOnnx(false);
+    }
+  }
+
   function tabLabel(tab: RightPanelTab) {
     if (tab === "classes") return tr(state.language, "classes");
     if (tab === "annotations") return tr(state.language, "annotations");
     if (tab === "assist") return tr(state.language, "assist");
     return tr(state.language, "export");
+  }
+
+  function acceptSuggestions() {
+    const count = state.suggestedBoxes.length;
+    if (count === 0) return;
+    acceptSuggestedBoxes();
+    setOnnxStatus(`${count} ${tr(state.language, "detectionsAdded")}`);
+  }
+
+  function clearSuggestions() {
+    clearSuggestedBoxes();
+    setOnnxStatus(tr(state.language, "suggestionsCleared"));
   }
 
   return (
@@ -105,7 +158,10 @@ export default function RightPanel() {
                     tabIndex={0}
                     onClick={() => setActiveClass(item.id)}
                   >
-                    <span class="swatch" style={{ "background-color": item.color }} />
+                    <span
+                      class="swatch"
+                      style={{ "background-color": item.color }}
+                    />
                     <Show
                       when={editingClassId() === item.id}
                       fallback={<span class="truncate">{item.name}</span>}
@@ -114,7 +170,9 @@ export default function RightPanel() {
                         class="class-rename-input"
                         value={editingClassName()}
                         onClick={(event) => event.stopPropagation()}
-                        onInput={(event) => setEditingClassName(event.currentTarget.value)}
+                        onInput={(event) =>
+                          setEditingClassName(event.currentTarget.value)
+                        }
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
@@ -165,7 +223,11 @@ export default function RightPanel() {
             <div class="annotation-list">
               <Show
                 when={state.currentBoxes.length > 0}
-                fallback={<p class="empty-hint">{tr(state.language, "noAnnotations")}</p>}
+                fallback={
+                  <p class="empty-hint">
+                    {tr(state.language, "noAnnotations")}
+                  </p>
+                }
               >
                 <For each={state.currentBoxes}>
                   {(box) => {
@@ -176,8 +238,16 @@ export default function RightPanel() {
                         type="button"
                         onClick={() => selectBox(box.id)}
                       >
-                        <span class="swatch" style={{ "background-color": item()?.color ?? "#4a9eff" }} />
-                        <span class="truncate">{item()?.name ?? `${tr(state.language, "classPrefix")} #${box.classId}`}</span>
+                        <span
+                          class="swatch"
+                          style={{
+                            "background-color": item()?.color ?? "#4a9eff",
+                          }}
+                        />
+                        <span class="truncate">
+                          {item()?.name ??
+                            `${tr(state.language, "classPrefix")} #${box.classId}`}
+                        </span>
                         <span
                           class="delete-button"
                           role="button"
@@ -202,15 +272,25 @@ export default function RightPanel() {
           <section class="right-tab-content">
             <header class="panel-header">
               <span>{tr(state.language, "assist")}</span>
+              <span class="badge">{state.suggestedBoxes.length}</span>
             </header>
             <div class="control-stack">
               <label class="control-field">
                 <span>{tr(state.language, "onnxModel")}</span>
                 <div class="inline-control">
-                  <button class="panel-button" type="button" onClick={chooseOnnxModel}>
+                  <button
+                    class="panel-button"
+                    type="button"
+                    onClick={chooseOnnxModel}
+                  >
                     {tr(state.language, "choose")}
                   </button>
-                  <span class="truncate muted" title={state.onnxModelPath ?? ""}>{modelName()}</span>
+                  <span
+                    class="truncate muted"
+                    title={state.onnxModelPath ?? ""}
+                  >
+                    {modelName()}
+                  </span>
                 </div>
               </label>
               <label class="control-field">
@@ -220,42 +300,79 @@ export default function RightPanel() {
                   min="32"
                   step="32"
                   value={state.onnxInputSize}
-                  onInput={(event) => setOnnxInputSize(event.currentTarget.valueAsNumber)}
+                  onInput={(event) =>
+                    setOnnxInputSize(event.currentTarget.valueAsNumber)
+                  }
                 />
               </label>
               <label class="control-field">
-                <span>{tr(state.language, "threshold")} <b>{state.onnxConfidence.toFixed(2)}</b></span>
+                <span>
+                  {tr(state.language, "threshold")}{" "}
+                  <b>{state.onnxConfidence.toFixed(2)}</b>
+                </span>
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.01"
                   value={state.onnxConfidence}
-                  onInput={(event) => setOnnxConfidence(event.currentTarget.valueAsNumber)}
+                  onInput={(event) =>
+                    setOnnxConfidence(event.currentTarget.valueAsNumber)
+                  }
                 />
               </label>
               <label class="control-field">
-                <span>{tr(state.language, "nms")} <b>{state.onnxNms.toFixed(2)}</b></span>
+                <span>
+                  {tr(state.language, "nms")} <b>{state.onnxNms.toFixed(2)}</b>
+                </span>
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.01"
                   value={state.onnxNms}
-                  onInput={(event) => setOnnxNms(event.currentTarget.valueAsNumber)}
+                  onInput={(event) =>
+                    setOnnxNms(event.currentTarget.valueAsNumber)
+                  }
                 />
               </label>
               <div class="button-grid">
-                <button class="panel-button primary" type="button" disabled>
-                  {tr(state.language, "runCurrentImage")}
+                <button
+                  class="panel-button primary"
+                  type="button"
+                  disabled={
+                    !state.onnxModelPath || !state.project || isRunningOnnx()
+                  }
+                  onClick={runCurrentImageDetection}
+                >
+                  {isRunningOnnx()
+                    ? tr(state.language, "inferenceRunning")
+                    : tr(state.language, "runCurrentImage")}
                 </button>
-                <button class="panel-button" type="button" disabled>
+                <button
+                  class="panel-button"
+                  type="button"
+                  disabled={
+                    state.suggestedBoxes.length === 0 || isRunningOnnx()
+                  }
+                  onClick={acceptSuggestions}
+                >
                   {tr(state.language, "acceptAll")}
                 </button>
-                <button class="panel-button" type="button" disabled>
+                <button
+                  class="panel-button"
+                  type="button"
+                  disabled={
+                    state.suggestedBoxes.length === 0 || isRunningOnnx()
+                  }
+                  onClick={clearSuggestions}
+                >
                   {tr(state.language, "clearSuggestions")}
                 </button>
               </div>
+              <Show when={onnxStatus()}>
+                <p class="empty-hint compact">{onnxStatus()}</p>
+              </Show>
             </div>
           </section>
         </Show>
@@ -270,23 +387,33 @@ export default function RightPanel() {
                 <span>{tr(state.language, "format")}</span>
                 <select
                   value={state.outputFormat}
-                  onChange={(event) => setOutputFormat(event.currentTarget.value as OutputFormat)}
+                  onChange={(event) =>
+                    setOutputFormat(event.currentTarget.value as OutputFormat)
+                  }
                 >
-                  <option value="yolo">{tr(state.language, "outputYolo")}</option>
-                  <option value="coco">{tr(state.language, "outputCoco")}</option>
+                  <option value="yolo">
+                    {tr(state.language, "outputYolo")}
+                  </option>
+                  <option value="coco">
+                    {tr(state.language, "outputCoco")}
+                  </option>
                 </select>
               </label>
               <label class="control-field">
                 <span>{tr(state.language, "language")}</span>
                 <select
                   value={state.language}
-                  onChange={(event) => setLanguage(event.currentTarget.value as Language)}
+                  onChange={(event) =>
+                    setLanguage(event.currentTarget.value as Language)
+                  }
                 >
                   <option value="en">EN</option>
                   <option value="zh">中文</option>
                 </select>
               </label>
-              <label class={`autosave-toggle panel-toggle ${state.autoSave ? "active" : ""}`}>
+              <label
+                class={`autosave-toggle panel-toggle ${state.autoSave ? "active" : ""}`}
+              >
                 <span>{tr(state.language, "autosave")}</span>
                 <input
                   type="checkbox"
@@ -304,11 +431,16 @@ export default function RightPanel() {
                 <span>{tr(state.language, "shortcuts")}</span>
               </header>
               <div class="shortcut-grid">
-                <span>D</span><span>{tr(state.language, "draw")}</span>
-                <span>Esc</span><span>{tr(state.language, "select")}</span>
-                <span>&larr; &rarr;</span><span>{tr(state.language, "image")}</span>
-                <span>Ctrl+S</span><span>{tr(state.language, "save")}</span>
-                <span>Del</span><span>{tr(state.language, "delete")}</span>
+                <span>D</span>
+                <span>{tr(state.language, "draw")}</span>
+                <span>Esc</span>
+                <span>{tr(state.language, "select")}</span>
+                <span>&larr; &rarr;</span>
+                <span>{tr(state.language, "image")}</span>
+                <span>Ctrl+S</span>
+                <span>{tr(state.language, "save")}</span>
+                <span>Del</span>
+                <span>{tr(state.language, "delete")}</span>
               </div>
             </section>
           </section>

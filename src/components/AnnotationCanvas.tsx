@@ -47,13 +47,38 @@ const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
 const ZOOM_STEP = 1.12;
 const RESIZE_HANDLES: ResizeHandleConfig[] = [
-  { id: "top-left", horizontal: "left", vertical: "top", cursor: "nwse-resize" },
+  {
+    id: "top-left",
+    horizontal: "left",
+    vertical: "top",
+    cursor: "nwse-resize",
+  },
   { id: "top", horizontal: "center", vertical: "top", cursor: "ns-resize" },
-  { id: "top-right", horizontal: "right", vertical: "top", cursor: "nesw-resize" },
+  {
+    id: "top-right",
+    horizontal: "right",
+    vertical: "top",
+    cursor: "nesw-resize",
+  },
   { id: "right", horizontal: "right", vertical: "middle", cursor: "ew-resize" },
-  { id: "bottom-right", horizontal: "right", vertical: "bottom", cursor: "nwse-resize" },
-  { id: "bottom", horizontal: "center", vertical: "bottom", cursor: "ns-resize" },
-  { id: "bottom-left", horizontal: "left", vertical: "bottom", cursor: "nesw-resize" },
+  {
+    id: "bottom-right",
+    horizontal: "right",
+    vertical: "bottom",
+    cursor: "nwse-resize",
+  },
+  {
+    id: "bottom",
+    horizontal: "center",
+    vertical: "bottom",
+    cursor: "ns-resize",
+  },
+  {
+    id: "bottom-left",
+    horizontal: "left",
+    vertical: "bottom",
+    cursor: "nesw-resize",
+  },
   { id: "left", horizontal: "left", vertical: "middle", cursor: "ew-resize" },
 ];
 
@@ -71,8 +96,8 @@ export default function AnnotationCanvas(props: Props) {
   let tempRect: Konva.Rect | null = null;
 
   function transformedLayers() {
-    return [imageLayer, annotationLayer, drawingLayer].filter((layer): layer is Konva.Layer =>
-      Boolean(layer),
+    return [imageLayer, annotationLayer, drawingLayer].filter(
+      (layer): layer is Konva.Layer => Boolean(layer),
     );
   }
 
@@ -101,10 +126,14 @@ export default function AnnotationCanvas(props: Props) {
   }
 
   function calculateMetrics(): ImageMetrics | undefined {
-    if (!imageEl || props.containerWidth <= 0 || props.containerHeight <= 0) return undefined;
+    if (!imageEl || props.containerWidth <= 0 || props.containerHeight <= 0)
+      return undefined;
     const naturalW = imageEl.naturalWidth;
     const naturalH = imageEl.naturalHeight;
-    const scale = Math.min(props.containerWidth / naturalW, props.containerHeight / naturalH);
+    const scale = Math.min(
+      props.containerWidth / naturalW,
+      props.containerHeight / naturalH,
+    );
     const imgW = naturalW * scale;
     const imgH = naturalH * scale;
     return {
@@ -159,8 +188,66 @@ export default function AnnotationCanvas(props: Props) {
     if (!annotationLayer || !metrics) return;
     annotationLayer.destroyChildren();
 
+    state.suggestedBoxes.forEach((box) => {
+      const pixel = yoloToPixel(
+        box.cx,
+        box.cy,
+        box.w,
+        box.h,
+        metrics!.imgW,
+        metrics!.imgH,
+      );
+      const annotationClass = classForId(box.classId);
+      const color = annotationClass?.color ?? "#4a9eff";
+      const group = new Konva.Group({
+        x: metrics!.offsetX + pixel.x,
+        y: metrics!.offsetY + pixel.y,
+        listening: false,
+      });
+
+      group.add(
+        new Konva.Rect({
+          x: 0,
+          y: 0,
+          width: pixel.width,
+          height: pixel.height,
+          stroke: color,
+          strokeWidth: 2,
+          dash: [4, 5],
+          opacity: 0.78,
+          fill: `${color}18`,
+        }),
+      );
+
+      group.add(
+        new Konva.Text({
+          x: 0,
+          y: Math.max(-20, -metrics!.offsetY - pixel.y),
+          text: annotationClass
+            ? `${annotationClass.name} #${annotationClass.id}`
+            : `Class #${box.classId}`,
+          fill: "#dceaff",
+          fontSize: 12,
+          fontStyle: "bold",
+          padding: 4,
+          shadowColor: "#000000",
+          shadowBlur: 2,
+          listening: false,
+        }),
+      );
+
+      annotationLayer!.add(group);
+    });
+
     state.currentBoxes.forEach((box) => {
-      const pixel = yoloToPixel(box.cx, box.cy, box.w, box.h, metrics!.imgW, metrics!.imgH);
+      const pixel = yoloToPixel(
+        box.cx,
+        box.cy,
+        box.w,
+        box.h,
+        metrics!.imgW,
+        metrics!.imgH,
+      );
       const selected = state.selectedBoxId === box.id;
       const annotationClass = classForId(box.classId);
       const color = annotationClass?.color ?? "#4a9eff";
@@ -184,7 +271,9 @@ export default function AnnotationCanvas(props: Props) {
       const label = new Konva.Text({
         x: 0,
         y: Math.max(-20, -metrics!.offsetY - pixel.y),
-        text: annotationClass ? `${annotationClass.name} #${annotationClass.id}` : `Class #${box.classId}`,
+        text: annotationClass
+          ? `${annotationClass.name} #${annotationClass.id}`
+          : `Class #${box.classId}`,
         fill: "#ffffff",
         fontSize: 12,
         fontStyle: "bold",
@@ -198,12 +287,25 @@ export default function AnnotationCanvas(props: Props) {
       group.add(label);
 
       if (selected) {
-        const handles: Array<{ node: Konva.Rect; config: ResizeHandleConfig }> = [];
+        const handles: Array<{ node: Konva.Rect; config: ResizeHandleConfig }> =
+          [];
         const handleOffset = HANDLE_SIZE / 2;
 
         function imageBounds() {
-          const left = Math.max(0, Math.min(metrics!.imgW - MIN_BOX_SIZE, group.x() - metrics!.offsetX));
-          const top = Math.max(0, Math.min(metrics!.imgH - MIN_BOX_SIZE, group.y() - metrics!.offsetY));
+          const left = Math.max(
+            0,
+            Math.min(
+              metrics!.imgW - MIN_BOX_SIZE,
+              group.x() - metrics!.offsetX,
+            ),
+          );
+          const top = Math.max(
+            0,
+            Math.min(
+              metrics!.imgH - MIN_BOX_SIZE,
+              group.y() - metrics!.offsetY,
+            ),
+          );
           return {
             left,
             top,
@@ -240,7 +342,14 @@ export default function AnnotationCanvas(props: Props) {
           const top = group.y() - metrics!.offsetY;
           updateBox(
             box.id,
-            pixelToYolo(left, top, rect.width(), rect.height(), metrics!.imgW, metrics!.imgH),
+            pixelToYolo(
+              left,
+              top,
+              rect.width(),
+              rect.height(),
+              metrics!.imgW,
+              metrics!.imgH,
+            ),
           );
         }
 
@@ -254,13 +363,19 @@ export default function AnnotationCanvas(props: Props) {
             left = Math.max(0, Math.min(pointer.x, right - MIN_BOX_SIZE));
           }
           if (config.horizontal === "right") {
-            right = Math.min(metrics!.imgW, Math.max(pointer.x, left + MIN_BOX_SIZE));
+            right = Math.min(
+              metrics!.imgW,
+              Math.max(pointer.x, left + MIN_BOX_SIZE),
+            );
           }
           if (config.vertical === "top") {
             top = Math.max(0, Math.min(pointer.y, bottom - MIN_BOX_SIZE));
           }
           if (config.vertical === "bottom") {
-            bottom = Math.min(metrics!.imgH, Math.max(pointer.y, top + MIN_BOX_SIZE));
+            bottom = Math.min(
+              metrics!.imgH,
+              Math.max(pointer.y, top + MIN_BOX_SIZE),
+            );
           }
 
           group.position({
@@ -318,9 +433,18 @@ export default function AnnotationCanvas(props: Props) {
       group.on("dragend", () => {
         const width = rect.width();
         const height = rect.height();
-        const x = Math.max(0, Math.min(metrics!.imgW - width, group.x() - metrics!.offsetX));
-        const y = Math.max(0, Math.min(metrics!.imgH - height, group.y() - metrics!.offsetY));
-        updateBox(box.id, pixelToYolo(x, y, width, height, metrics!.imgW, metrics!.imgH));
+        const x = Math.max(
+          0,
+          Math.min(metrics!.imgW - width, group.x() - metrics!.offsetX),
+        );
+        const y = Math.max(
+          0,
+          Math.min(metrics!.imgH - height, group.y() - metrics!.offsetY),
+        );
+        updateBox(
+          box.id,
+          pixelToYolo(x, y, width, height, metrics!.imgW, metrics!.imgH),
+        );
       });
 
       annotationLayer!.add(group);
@@ -388,7 +512,10 @@ export default function AnnotationCanvas(props: Props) {
     const key = event.key.toLowerCase();
     if (key === "d") setDrawMode("draw");
     if (event.key === "Escape") setDrawMode("select");
-    if ((event.key === "Delete" || event.key === "Backspace") && state.selectedBoxId) {
+    if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      state.selectedBoxId
+    ) {
       event.preventDefault();
       deleteBox(state.selectedBoxId);
     }
@@ -427,7 +554,9 @@ export default function AnnotationCanvas(props: Props) {
     }
 
     const nextScale = clampZoom(
-      event.evt.deltaY < 0 ? viewport.scale * ZOOM_STEP : viewport.scale / ZOOM_STEP,
+      event.evt.deltaY < 0
+        ? viewport.scale * ZOOM_STEP
+        : viewport.scale / ZOOM_STEP,
     );
     if (nextScale === viewport.scale) return;
 
@@ -487,10 +616,23 @@ export default function AnnotationCanvas(props: Props) {
   });
 
   createEffect(() => {
-    state.currentBoxes.map((box) => `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`).join("|");
+    state.suggestedBoxes
+      .map(
+        (box) =>
+          `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`,
+      )
+      .join("|");
+    state.currentBoxes
+      .map(
+        (box) =>
+          `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`,
+      )
+      .join("|");
     state.selectedBoxId;
     state.drawMode;
-    state.project?.classes.map((item) => `${item.id}:${item.name}:${item.color}`).join("|");
+    state.project?.classes
+      .map((item) => `${item.id}:${item.name}:${item.color}`)
+      .join("|");
     renderBoxes();
   });
 
