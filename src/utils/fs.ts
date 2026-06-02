@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type { AnnotationClass, BBox, ImageEntry } from "../types";
 
 export async function pickFolder(title: string): Promise<string | null> {
@@ -19,6 +19,38 @@ export async function pickOnnxModel(title: string): Promise<string | null> {
     filters: [{ name: "ONNX", extensions: ["onnx"] }],
   });
   return typeof selected === "string" ? selected : null;
+}
+
+export async function pickModelProfile(title: string): Promise<string | null> {
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title,
+    filters: [{ name: "Model Profile", extensions: ["json"] }],
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+export async function pickModelProfileSavePath(
+  title: string,
+): Promise<string | null> {
+  const selected = await save({
+    title,
+    filters: [{ name: "Model Profile", extensions: ["json"] }],
+    defaultPath: "superlabel-model-profile.json",
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
+export async function readTextFile(path: string): Promise<string> {
+  return invoke("read_text_file", { path });
+}
+
+export async function writeTextFile(
+  path: string,
+  content: string,
+): Promise<void> {
+  await invoke("write_text_file", { path, content });
 }
 
 export async function loadImagesFromFolder(

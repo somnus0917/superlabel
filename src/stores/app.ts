@@ -3,6 +3,7 @@ import type {
   BBox,
   DrawMode,
   Language,
+  ModelProfile,
   OutputFormat,
   ProjectState,
   RightPanelTab,
@@ -23,6 +24,7 @@ interface AppStore {
   language: Language;
   outputFormat: OutputFormat;
   rightPanelTab: RightPanelTab;
+  onnxProfileName: string | null;
   onnxModelPath: string | null;
   onnxInputSize: number;
   onnxConfidence: number;
@@ -53,6 +55,7 @@ const initialState: AppStore = {
   language: "en",
   outputFormat: "yolo",
   rightPanelTab: "classes",
+  onnxProfileName: null,
   onnxModelPath: null,
   onnxInputSize: 640,
   onnxConfidence: 0.25,
@@ -303,8 +306,28 @@ export function setRightPanelTab(tab: RightPanelTab) {
   setState("rightPanelTab", tab);
 }
 
+export function applyModelProfile(profile: ModelProfile) {
+  setState(
+    produce((draft) => {
+      draft.onnxProfileName = profile.name;
+      draft.onnxModelPath = profile.modelPath;
+      draft.onnxInputSize = normalizePositiveInt(profile.inputSize, 640);
+      draft.onnxConfidence = clamp01(profile.confidence);
+      draft.onnxNms = clamp01(profile.nms);
+      draft.onnxClassMin = normalizePositiveInt(profile.classMin, 0);
+      draft.onnxClassMax = Math.max(
+        draft.onnxClassMin,
+        normalizePositiveInt(profile.classMax, draft.onnxClassMin),
+      );
+    }),
+  );
+}
+
 export function setOnnxModelPath(path: string | null) {
-  setState("onnxModelPath", path);
+  setState({
+    onnxModelPath: path,
+    onnxProfileName: null,
+  });
 }
 
 export function setOnnxInputSize(size: number) {
@@ -388,6 +411,16 @@ function boxChanged(box: BBox, patch: Partial<BBox>) {
   return Object.entries(patch).some(
     ([key, value]) => box[key as keyof BBox] !== value,
   );
+}
+
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizePositiveInt(value: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.round(value));
 }
 
 function currentImageFilename() {

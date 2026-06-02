@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import {
   addClass,
   acceptSuggestedBoxes,
+  applyModelProfile,
   clearSuggestedBoxes,
   deleteBox,
   renameClass,
@@ -21,8 +22,20 @@ import {
   state,
   updateBox,
 } from "../stores/app";
-import type { Language, OutputFormat, RightPanelTab } from "../types";
-import { pickOnnxModel, runOnnxDetection } from "../utils/fs";
+import type {
+  Language,
+  ModelProfile,
+  OutputFormat,
+  RightPanelTab,
+} from "../types";
+import {
+  pickModelProfile,
+  pickModelProfileSavePath,
+  pickOnnxModel,
+  readTextFile,
+  runOnnxDetection,
+  writeTextFile,
+} from "../utils/fs";
 import { tr } from "../utils/i18n";
 
 const PANEL_TABS: RightPanelTab[] = [
@@ -78,9 +91,42 @@ export default function RightPanel() {
     }
   }
 
+  async function loadModelProfile() {
+    const profilePath = await pickModelProfile(
+      tr(state.language, "dialogOpenModelProfile"),
+    );
+    if (!profilePath) return;
+
+    try {
+      const profile = parseModelProfile(await readTextFile(profilePath));
+      applyModelProfile(profile);
+      setOnnxStatus(`${tr(state.language, "profileLoaded")}: ${profile.name}`);
+    } catch (error) {
+      setOnnxStatus(
+        `${tr(state.language, "profileInvalid")}: ${String(error)}`,
+      );
+    }
+  }
+
+  async function saveModelProfile() {
+    if (!state.onnxModelPath) return;
+    const profilePath = await pickModelProfileSavePath(
+      tr(state.language, "dialogSaveModelProfile"),
+    );
+    if (!profilePath) return;
+
+    const profile = currentModelProfile(profilePath);
+    await writeTextFile(profilePath, `${JSON.stringify(profile, null, 2)}\n`);
+    setOnnxStatus(`${tr(state.language, "profileSaved")}: ${profile.name}`);
+  }
+
   function modelName() {
     if (!state.onnxModelPath) return tr(state.language, "noOnnxModel");
     return state.onnxModelPath.split(/[\\/]/).pop() ?? state.onnxModelPath;
+  }
+
+  function profileName() {
+    return state.onnxProfileName ?? tr(state.language, "unsavedProfile");
   }
 
   async function runCurrentImageDetection() {
@@ -345,6 +391,27 @@ export default function RightPanel() {
             </header>
             <div class="control-stack">
               <label class="control-field">
+                <span>{tr(state.language, "modelProfile")}</span>
+                <div class="inline-control">
+                  <button
+                    class="panel-button"
+                    type="button"
+                    onClick={loadModelProfile}
+                  >
+                    {tr(state.language, "loadProfile")}
+                  </button>
+                  <button
+                    class="panel-button"
+                    type="button"
+                    disabled={!state.onnxModelPath}
+                    onClick={saveModelProfile}
+                  >
+                    {tr(state.language, "saveProfile")}
+                  </button>
+                </div>
+                <span class="profile-name truncate">{profileName()}</span>
+              </label>
+              <label class="control-field">
                 <span>{tr(state.language, "onnxModel")}</span>
                 <div class="inline-control">
                   <button
@@ -562,4 +629,64 @@ export default function RightPanel() {
       </div>
     </aside>
   );
+}
+
+function parseModelProfile(text: string): ModelProfile {
+  const value = JSON.parse(text) as Partial<ModelProfile>;
+  if (value.type !== "yolo") {
+    throw new Error("Only YOLO profiles are supported");
+  }
+  if (!value.modelPath || typeof value.modelPath !== "string") {
+    throw new Error("modelPath is required");
+  }
+
+  return {
+    version: 1,
+    name:
+      typeof value.name === "string" && value.name.trim()
+        ? value.name.trim()
+        : profileNameFromPath(value.modelPath),
+    type: "yolo",
+    modelPath: value.modelPath,
+    inputSize: numberOr(value.inputSize, 640),
+    confidence: numberOr(value.confidence, 0.25),
+    nms: numberOr(value.nms, 0.45),
+    classMin: numberOr(value.classMin, 0),
+    classMax: numberOr(value.classMax, 9999),
+    classes: Array.isArray(value.classes)
+      ? value.classes.filter((item): item is string => typeof item === "string")
+      : undefined,
+    classMap:
+      value.classMap && typeof value.classMap === "object"
+        ? value.classMap
+        : undefined,
+  };
+}
+
+function currentModelProfile(profilePath: string): ModelProfile {
+  const classes = state.project?.classes.map((item) => item.name) ?? [];
+  return {
+    version: 1,
+    name: state.onnxProfileName ?? profileNameFromPath(profilePath),
+    type: "yolo",
+    modelPath: state.onnxModelPath ?? "",
+    inputSize: state.onnxInputSize,
+    confidence: state.onnxConfidence,
+    nms: state.onnxNms,
+    classMin: state.onnxClassMin,
+    classMax: state.onnxClassMax,
+    classes,
+    classMap: Object.fromEntries(
+      classes.map((_, index) => [String(index), index]),
+    ),
+  };
+}
+
+function profileNameFromPath(path: string) {
+  const filename = path.split(/[\\/]/).pop() ?? "model-profile";
+  return filename.replace(/\.(onnx|json)$/i, "") || "model-profile";
+}
+
+function numberOr(value: unknown, fallback: number) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }

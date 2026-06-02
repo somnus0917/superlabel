@@ -29,6 +29,20 @@ export interface ProjectState {
   classes: AnnotationClass[];
 }
 
+export interface ModelProfile {
+  version: 1;
+  name: string;
+  type: "yolo";
+  modelPath: string;
+  inputSize: number;
+  confidence: number;
+  nms: number;
+  classMin: number;
+  classMax: number;
+  classes?: string[];
+  classMap?: Record<string, number>;
+}
+
 export type DrawMode = "draw" | "select";
 export type Language = "en" | "zh";
 export type OutputFormat = "yolo" | "coco";

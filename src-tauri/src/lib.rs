@@ -137,6 +137,16 @@ fn write_classes_file(folder_path: String, content: String) -> Result<(), String
 }
 
 #[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    atomic_write(PathBuf::from(path), content)
+}
+
+#[tauri::command]
 fn export_coco_file(
     folder_path: String,
     images: Vec<ImageEntry>,
@@ -839,6 +849,8 @@ pub fn run() {
             write_label_file,
             read_classes_file,
             write_classes_file,
+            read_text_file,
+            write_text_file,
             export_coco_file,
             run_onnx_detection,
         ])

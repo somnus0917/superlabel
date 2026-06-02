@@ -518,6 +518,12 @@ button:disabled {
   gap: 8px;
 }
 
+.profile-name {
+  min-height: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .range-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
