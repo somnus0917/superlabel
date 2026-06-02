@@ -9,6 +9,8 @@ import {
   setActiveClass,
   setAutoSave,
   setLanguage,
+  setOnnxClassMax,
+  setOnnxClassMin,
   setOnnxConfidence,
   setOnnxInputSize,
   setOnnxModelPath,
@@ -35,6 +37,7 @@ export default function RightPanel() {
   const [editingClassName, setEditingClassName] = createSignal("");
   const [isRunningOnnx, setIsRunningOnnx] = createSignal(false);
   const [onnxStatus, setOnnxStatus] = createSignal("");
+  const [onnxProgress, setOnnxProgress] = createSignal("");
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -94,6 +97,8 @@ export default function RightPanel() {
         state.onnxConfidence,
         state.onnxNms,
         project.classes.length,
+        state.onnxClassMin,
+        state.onnxClassMax,
       );
       setSuggestedBoxes(boxes);
       setOnnxStatus(
@@ -105,6 +110,43 @@ export default function RightPanel() {
       );
     } finally {
       setIsRunningOnnx(false);
+    }
+  }
+
+  async function runAllImagesDetection() {
+    const project = state.project;
+    if (!state.onnxModelPath || !project || isRunningOnnx()) return;
+
+    setIsRunningOnnx(true);
+    setOnnxStatus(tr(state.language, "inferenceRunning"));
+    setOnnxProgress(`0/${project.images.length}`);
+    try {
+      let totalBoxes = 0;
+      for (const [index, image] of project.images.entries()) {
+        setOnnxProgress(`${index + 1}/${project.images.length}`);
+        const boxes = await runOnnxDetection(
+          state.onnxModelPath,
+          image.fullPath,
+          state.onnxInputSize,
+          state.onnxConfidence,
+          state.onnxNms,
+          project.classes.length,
+          state.onnxClassMin,
+          state.onnxClassMax,
+        );
+        totalBoxes += boxes.length;
+        setSuggestedBoxes(boxes, image.filename);
+      }
+      setOnnxStatus(
+        `${project.images.length} ${tr(state.language, "imagesProcessed")}, ${totalBoxes} ${tr(state.language, "suggestionsReady")}`,
+      );
+    } catch (error) {
+      setOnnxStatus(
+        `${tr(state.language, "inferenceFailed")}: ${String(error)}`,
+      );
+    } finally {
+      setIsRunningOnnx(false);
+      setOnnxProgress("");
     }
   }
 
@@ -336,6 +378,32 @@ export default function RightPanel() {
                   }
                 />
               </label>
+              <div class="range-row">
+                <label class="control-field">
+                  <span>{tr(state.language, "classMin")}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={state.onnxClassMin}
+                    onInput={(event) =>
+                      setOnnxClassMin(event.currentTarget.valueAsNumber)
+                    }
+                  />
+                </label>
+                <label class="control-field">
+                  <span>{tr(state.language, "classMax")}</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={state.onnxClassMax}
+                    onInput={(event) =>
+                      setOnnxClassMax(event.currentTarget.valueAsNumber)
+                    }
+                  />
+                </label>
+              </div>
               <div class="button-grid">
                 <button
                   class="panel-button primary"
@@ -348,6 +416,16 @@ export default function RightPanel() {
                   {isRunningOnnx()
                     ? tr(state.language, "inferenceRunning")
                     : tr(state.language, "runCurrentImage")}
+                </button>
+                <button
+                  class="panel-button primary"
+                  type="button"
+                  disabled={
+                    !state.onnxModelPath || !state.project || isRunningOnnx()
+                  }
+                  onClick={runAllImagesDetection}
+                >
+                  {tr(state.language, "runAllImages")}
                 </button>
                 <button
                   class="panel-button"
@@ -371,7 +449,12 @@ export default function RightPanel() {
                 </button>
               </div>
               <Show when={onnxStatus()}>
-                <p class="empty-hint compact">{onnxStatus()}</p>
+                <p class="empty-hint compact">
+                  {onnxStatus()}
+                  <Show when={onnxProgress()}>
+                    <span class="muted"> {onnxProgress()}</span>
+                  </Show>
+                </p>
               </Show>
             </div>
           </section>

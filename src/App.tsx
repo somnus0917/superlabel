@@ -11,7 +11,12 @@ import {
   setCurrentBoxes,
   state,
 } from "./stores/app";
-import { parseClasses, parseYolo, serializeClasses, serializeYolo } from "./utils/yolo";
+import {
+  parseClasses,
+  parseYolo,
+  serializeClasses,
+  serializeYolo,
+} from "./utils/yolo";
 import {
   exportCocoFile,
   loadImagesFromFolder,
@@ -39,8 +44,15 @@ export default function App() {
     if (!project) return;
     const image = project.images[project.currentIndex];
     if (!image) return;
-    await writeLabelFile(project.labelFolderPath, image.filename, serializeYolo(state.currentBoxes));
-    await writeClassesFile(project.labelFolderPath, serializeClasses(project.classes));
+    await writeLabelFile(
+      project.labelFolderPath,
+      image.filename,
+      serializeYolo(state.currentBoxes),
+    );
+    await writeClassesFile(
+      project.labelFolderPath,
+      serializeClasses(project.classes),
+    );
     if (state.outputFormat === "coco") {
       await exportCocoFile(
         project.labelFolderPath,
@@ -72,14 +84,20 @@ export default function App() {
 
   async function handleNext() {
     if (!state.project || state.project.images.length === 0) return;
-    await handleSelectImage(Math.min(state.project.images.length - 1, state.project.currentIndex + 1));
+    await handleSelectImage(
+      Math.min(state.project.images.length - 1, state.project.currentIndex + 1),
+    );
   }
 
   async function handleOpenFolder() {
     await saveIfDirty();
-    const imageFolderPath = await pickFolder(tr(state.language, "dialogOpenImageFolder"));
+    const imageFolderPath = await pickFolder(
+      tr(state.language, "dialogOpenImageFolder"),
+    );
     if (!imageFolderPath) return;
-    const labelFolderPath = await pickFolder(tr(state.language, "dialogOpenLabelFolder"));
+    const labelFolderPath = await pickFolder(
+      tr(state.language, "dialogOpenLabelFolder"),
+    );
     if (!labelFolderPath) return;
     const [images, classesText] = await Promise.all([
       loadImagesFromFolder(imageFolderPath, labelFolderPath),
@@ -127,7 +145,8 @@ export default function App() {
   createEffect(() => {
     const project = state.project;
     const index = project?.currentIndex;
-    const image = project && typeof index === "number" ? project.images[index] : undefined;
+    const image =
+      project && typeof index === "number" ? project.images[index] : undefined;
     if (!project || !image) {
       setCurrentBoxes([]);
       return;
@@ -139,7 +158,7 @@ export default function App() {
         state.project.labelFolderPath === project.labelFolderPath &&
         state.project.currentIndex === index
       ) {
-        setCurrentBoxes(parseYolo(text));
+        setCurrentBoxes(parseYolo(text), image.filename);
       }
     })();
   });
@@ -148,9 +167,14 @@ export default function App() {
     const project = state.project;
     const image = project?.images[project.currentIndex];
     const boxesSignature = state.currentBoxes
-      .map((box) => `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`)
+      .map(
+        (box) =>
+          `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`,
+      )
       .join("|");
-    const classesSignature = project?.classes.map((item) => `${item.id}:${item.name}`).join("|");
+    const classesSignature = project?.classes
+      .map((item) => `${item.id}:${item.name}`)
+      .join("|");
     state.autoSave;
     state.dirty;
     boxesSignature;

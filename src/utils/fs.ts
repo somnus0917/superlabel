@@ -80,6 +80,8 @@ export async function runOnnxDetection(
   confidence: number,
   nms: number,
   classCount: number,
+  classMin: number,
+  classMax: number,
 ): Promise<BBox[]> {
   return invoke("run_onnx_detection", {
     modelPath,
@@ -88,5 +90,7 @@ export async function runOnnxDetection(
     confidence,
     nms,
     classCount,
+    classMin,
+    classMax,
   });
 }

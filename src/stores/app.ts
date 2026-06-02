@@ -13,6 +13,7 @@ interface AppStore {
   project: ProjectState | null;
   currentBoxes: BBox[];
   suggestedBoxes: BBox[];
+  suggestedBoxesByImage: Record<string, BBox[]>;
   selectedBoxId: string | null;
   activeClassId: number;
   drawMode: DrawMode;
@@ -24,6 +25,8 @@ interface AppStore {
   onnxInputSize: number;
   onnxConfidence: number;
   onnxNms: number;
+  onnxClassMin: number;
+  onnxClassMax: number;
   dirty: boolean;
 }
 
@@ -31,6 +34,7 @@ const initialState: AppStore = {
   project: null,
   currentBoxes: [],
   suggestedBoxes: [],
+  suggestedBoxesByImage: {},
   selectedBoxId: null,
   activeClassId: 0,
   drawMode: "draw",
@@ -42,6 +46,8 @@ const initialState: AppStore = {
   onnxInputSize: 640,
   onnxConfidence: 0.25,
   onnxNms: 0.45,
+  onnxClassMin: 0,
+  onnxClassMax: 9999,
   dirty: false,
 };
 
@@ -58,6 +64,7 @@ export function openProject(project: ProjectState) {
     },
     currentBoxes: [],
     suggestedBoxes: [],
+    suggestedBoxesByImage: {},
     selectedBoxId: null,
     activeClassId: project.classes[0]?.id ?? 0,
     drawMode: "draw",
@@ -65,10 +72,12 @@ export function openProject(project: ProjectState) {
   });
 }
 
-export function setCurrentBoxes(boxes: BBox[]) {
+export function setCurrentBoxes(boxes: BBox[], imageFilename?: string) {
   setState({
     currentBoxes: boxes,
-    suggestedBoxes: [],
+    suggestedBoxes: imageFilename
+      ? (state.suggestedBoxesByImage[imageFilename] ?? [])
+      : [],
     selectedBoxId: null,
     dirty: false,
   });
@@ -85,7 +94,10 @@ export function goToImage(index: number) {
       if (!draft.project) return;
       draft.project.currentIndex = nextIndex;
       draft.currentBoxes = [];
-      draft.suggestedBoxes = [];
+      const image = draft.project.images[nextIndex];
+      draft.suggestedBoxes = image
+        ? (draft.suggestedBoxesByImage[image.filename] ?? [])
+        : [];
       draft.selectedBoxId = null;
       draft.dirty = false;
     }),
@@ -114,17 +126,32 @@ export function addBoxes(boxes: BBox[]) {
   );
 }
 
-export function setSuggestedBoxes(boxes: BBox[]) {
-  setState("suggestedBoxes", withUniqueBoxIds(boxes, "suggestion"));
+export function setSuggestedBoxes(boxes: BBox[], imageFilename?: string) {
+  const filename = imageFilename ?? currentImageFilename();
+  const nextBoxes = withUniqueBoxIds(boxes, "suggestion");
+  setState(
+    produce((draft) => {
+      if (filename) {
+        draft.suggestedBoxesByImage[filename] = nextBoxes;
+      }
+      if (!filename || filename === currentImageFilename()) {
+        draft.suggestedBoxes = nextBoxes;
+      }
+    }),
+  );
 }
 
 export function acceptSuggestedBoxes() {
   if (state.suggestedBoxes.length === 0) return;
+  const filename = currentImageFilename();
   setState(
     produce((draft) => {
       const nextBoxes = withUniqueBoxIds(draft.suggestedBoxes);
       draft.currentBoxes.push(...nextBoxes);
       draft.suggestedBoxes = [];
+      if (filename) {
+        delete draft.suggestedBoxesByImage[filename];
+      }
       draft.selectedBoxId = nextBoxes[nextBoxes.length - 1].id;
       draft.dirty = true;
     }),
@@ -132,7 +159,15 @@ export function acceptSuggestedBoxes() {
 }
 
 export function clearSuggestedBoxes() {
-  setState("suggestedBoxes", []);
+  const filename = currentImageFilename();
+  setState(
+    produce((draft) => {
+      draft.suggestedBoxes = [];
+      if (filename) {
+        delete draft.suggestedBoxesByImage[filename];
+      }
+    }),
+  );
 }
 
 export function updateBox(id: string, patch: Partial<BBox>) {
@@ -238,6 +273,18 @@ export function setOnnxNms(value: number) {
   setState("onnxNms", Math.max(0, Math.min(1, value)));
 }
 
+export function setOnnxClassMin(value: number) {
+  if (!Number.isFinite(value)) return;
+  const nextValue = Math.max(0, Math.round(value));
+  setState("onnxClassMin", Math.min(nextValue, state.onnxClassMax));
+}
+
+export function setOnnxClassMax(value: number) {
+  if (!Number.isFinite(value)) return;
+  const nextValue = Math.max(0, Math.round(value));
+  setState("onnxClassMax", Math.max(nextValue, state.onnxClassMin));
+}
+
 export function markSaved(filename: string) {
   setState(
     produce((draft) => {
@@ -260,4 +307,9 @@ function withUniqueBoxIds(boxes: BBox[], prefix = "box") {
     ...box,
     id: `${prefix}-${box.id}-${timestamp}-${index}`,
   }));
+}
+
+function currentImageFilename() {
+  const project = state.project;
+  return project?.images[project.currentIndex]?.filename;
 }

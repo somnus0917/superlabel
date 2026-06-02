@@ -219,6 +219,8 @@ fn run_onnx_detection(
     confidence: f32,
     nms: f32,
     class_count: usize,
+    class_min: u32,
+    class_max: u32,
 ) -> Result<Vec<BBox>, String> {
     let input_size = input_size.max(32);
     let (input_tensor, letterbox) = prepare_onnx_input(&image_path, input_size)?;
@@ -238,6 +240,8 @@ fn run_onnx_detection(
         output.as_slice().ok_or("non-contiguous output")?,
         confidence,
         class_count,
+        class_min,
+        class_max,
         &letterbox,
     )?;
     candidates.sort_by(|left, right| {
@@ -473,6 +477,8 @@ fn decode_yolo_output(
     values: &[f32],
     confidence_threshold: f32,
     class_count: usize,
+    class_min: u32,
+    class_max: u32,
     letterbox: &Letterbox,
 ) -> Result<Vec<DetectionCandidate>, String> {
     if shape.len() != 3 || shape[0] != 1 {
@@ -492,6 +498,8 @@ fn decode_yolo_output(
             |row, col| values[row * dim2 + col],
             confidence_threshold,
             class_count,
+            class_min,
+            class_max,
             letterbox,
         ))
     } else if dim1_attr_score > 0 {
@@ -502,6 +510,8 @@ fn decode_yolo_output(
             |row, col| values[col * dim2 + row],
             confidence_threshold,
             class_count,
+            class_min,
+            class_max,
             letterbox,
         ))
     } else {
@@ -545,6 +555,8 @@ fn decode_yolo_rows<F>(
     value_at: F,
     confidence_threshold: f32,
     class_count: usize,
+    class_min: u32,
+    class_max: u32,
     letterbox: &Letterbox,
 ) -> Vec<DetectionCandidate>
 where
@@ -583,16 +595,14 @@ where
         if confidence < confidence_threshold {
             continue;
         }
+        let class_id = best_class as u32;
+        if class_id < class_min || class_id > class_max {
+            continue;
+        }
 
-        if let Some(candidate) = candidate_from_model_box(
-            cx,
-            cy,
-            width,
-            height,
-            best_class as u32,
-            confidence,
-            letterbox,
-        ) {
+        if let Some(candidate) =
+            candidate_from_model_box(cx, cy, width, height, class_id, confidence, letterbox)
+        {
             detections.push(candidate);
         }
     }
