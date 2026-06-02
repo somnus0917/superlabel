@@ -1,0 +1,366 @@
+:root {
+  --bg-base: #1a1a1a;
+  --bg-panel: #1e1e1e;
+  --bg-toolbar: #252525;
+  --bg-hover: #252525;
+  --bg-active: #2a2a2a;
+  --border: #333333;
+  --border-sub: #2a2a2a;
+  --text-primary: #e0e0e0;
+  --text-secondary: #aaaaaa;
+  --text-muted: #666666;
+  --text-dim: #444444;
+  --accent-blue: #4a9eff;
+  --accent-green: #44cc88;
+  --accent-orange: #ffaa55;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.toolbar {
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+}
+
+button {
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.toolbar-button,
+.icon-button,
+.save-button {
+  height: 30px;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: var(--bg-active);
+  border-color: var(--border);
+}
+
+.toolbar-button:hover,
+.icon-button:hover,
+.save-button:hover,
+.image-row:hover,
+.class-row:hover,
+.annotation-row:hover {
+  background: var(--bg-hover);
+}
+
+.icon-button {
+  width: 30px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.toolbar-button.mode.active {
+  background: #2a3a4a;
+  border-color: #4a7aaa;
+  color: #88ccff;
+}
+
+.toolbar-separator {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.current-file {
+  min-width: 180px;
+  max-width: 360px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+
+.current-file span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count,
+.badge {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.badge {
+  min-width: 24px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-active);
+}
+
+.save-button.saved {
+  background: #2a3a2a;
+  border-color: #3a5a3a;
+  color: #88cc88;
+}
+
+.save-button.dirty {
+  background: #3a2a1a;
+  border-color: #7a4a1a;
+  color: var(--accent-orange);
+}
+
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.panel {
+  width: 220px;
+  flex: 0 0 220px;
+  background: var(--bg-panel);
+  border-color: var(--border);
+}
+
+.image-list {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.right-panel {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-header {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-sub);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.image-rows,
+.annotation-list,
+.class-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.image-rows {
+  flex: 1;
+}
+
+.image-row,
+.class-row,
+.annotation-row {
+  width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  text-align: left;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border-sub);
+  color: var(--text-secondary);
+}
+
+.image-row.active {
+  background: var(--bg-active);
+  border-left: 3px solid var(--accent-blue);
+  padding-left: 7px;
+  color: var(--text-primary);
+}
+
+.class-row.active,
+.annotation-row.active {
+  background: var(--bg-active);
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: var(--text-dim);
+}
+
+.status-dot.done {
+  background: var(--accent-green);
+}
+
+.filename,
+.truncate {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-shell {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #151515;
+}
+
+.annotation-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.empty-state {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-state h1 {
+  color: var(--text-primary);
+  font-size: 28px;
+  margin-bottom: 10px;
+}
+
+.empty-state p {
+  margin-bottom: 18px;
+}
+
+.empty-state button,
+.add-class button {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid #4a7aaa;
+  background: #2a3a4a;
+  color: #88ccff;
+}
+
+.right-section {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.right-section:first-child {
+  flex: 0 0 220px;
+}
+
+.annotations-section {
+  flex: 1;
+}
+
+.shortcuts-section {
+  flex: 0 0 170px;
+  border-bottom: 0;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.add-class {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid var(--border-sub);
+}
+
+.add-class input {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #171717;
+  color: var(--text-primary);
+}
+
+.add-class input::placeholder {
+  color: var(--text-muted);
+}
+
+.delete-button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+.delete-button:hover {
+  background: #3a2424;
+  color: #ff8888;
+}
+
+.empty-hint {
+  padding: 14px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px 12px;
+  padding: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.shortcut-grid span:nth-child(odd) {
+  color: var(--text-primary);
+  font-weight: 700;
+}

@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+src-tauri/target/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+
+# Editor files
+.idea/
+.vscode/
