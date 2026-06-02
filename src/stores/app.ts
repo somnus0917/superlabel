@@ -1,5 +1,5 @@
 import { createStore, produce } from "solid-js/store";
-import type { BBox, DrawMode, Language, OutputFormat, ProjectState } from "../types";
+import type { BBox, DrawMode, Language, OutputFormat, ProjectState, RightPanelTab } from "../types";
 import { DEFAULT_COLORS } from "../utils/yolo";
 
 interface AppStore {
@@ -11,6 +11,11 @@ interface AppStore {
   autoSave: boolean;
   language: Language;
   outputFormat: OutputFormat;
+  rightPanelTab: RightPanelTab;
+  onnxModelPath: string | null;
+  onnxInputSize: number;
+  onnxConfidence: number;
+  onnxNms: number;
   dirty: boolean;
 }
 
@@ -23,6 +28,11 @@ const initialState: AppStore = {
   autoSave: false,
   language: "en",
   outputFormat: "yolo",
+  rightPanelTab: "classes",
+  onnxModelPath: null,
+  onnxInputSize: 640,
+  onnxConfidence: 0.25,
+  onnxNms: 0.45,
   dirty: false,
 };
 
@@ -150,6 +160,29 @@ export function setLanguage(language: Language) {
 
 export function setOutputFormat(outputFormat: OutputFormat) {
   setState("outputFormat", outputFormat);
+}
+
+export function setRightPanelTab(tab: RightPanelTab) {
+  setState("rightPanelTab", tab);
+}
+
+export function setOnnxModelPath(path: string | null) {
+  setState("onnxModelPath", path);
+}
+
+export function setOnnxInputSize(size: number) {
+  if (!Number.isFinite(size)) return;
+  setState("onnxInputSize", Math.max(32, Math.round(size)));
+}
+
+export function setOnnxConfidence(value: number) {
+  if (!Number.isFinite(value)) return;
+  setState("onnxConfidence", Math.max(0, Math.min(1, value)));
+}
+
+export function setOnnxNms(value: number) {
+  if (!Number.isFinite(value)) return;
+  setState("onnxNms", Math.max(0, Math.min(1, value)));
 }
 
 export function markSaved(filename: string) {

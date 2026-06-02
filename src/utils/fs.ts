@@ -11,6 +11,16 @@ export async function pickFolder(title: string): Promise<string | null> {
   return typeof selected === "string" ? selected : null;
 }
 
+export async function pickOnnxModel(title: string): Promise<string | null> {
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title,
+    filters: [{ name: "ONNX", extensions: ["onnx"] }],
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
 export async function loadImagesFromFolder(
   imageFolderPath: string,
   labelFolderPath: string,

@@ -1,5 +1,4 @@
-import { state, setAutoSave, setDrawMode, setLanguage, setOutputFormat } from "../stores/app";
-import type { Language, OutputFormat } from "../types";
+import { state, setDrawMode } from "../stores/app";
 import { tr } from "../utils/i18n";
 
 interface Props {
@@ -52,37 +51,6 @@ export default function Toolbar(props: Props) {
         <span>{tr(state.language, "select")}</span>
       </button>
       <div class="toolbar-spacer" />
-      <label class="toolbar-select">
-        <span>{tr(state.language, "format")}</span>
-        <select
-          value={state.outputFormat}
-          onChange={(event) => setOutputFormat(event.currentTarget.value as OutputFormat)}
-        >
-          <option value="yolo">{tr(state.language, "outputYolo")}</option>
-          <option value="coco">{tr(state.language, "outputCoco")}</option>
-        </select>
-      </label>
-      <label class="toolbar-select">
-        <span>{tr(state.language, "language")}</span>
-        <select
-          value={state.language}
-          onChange={(event) => setLanguage(event.currentTarget.value as Language)}
-        >
-          <option value="en">EN</option>
-          <option value="zh">中文</option>
-        </select>
-      </label>
-      <label class={`autosave-toggle ${state.autoSave ? "active" : ""}`}>
-        <span>{tr(state.language, "autosave")}</span>
-        <input
-          type="checkbox"
-          checked={state.autoSave}
-          onChange={(event) => setAutoSave(event.currentTarget.checked)}
-        />
-        <span class="switch-track" aria-hidden="true">
-          <span class="switch-thumb" />
-        </span>
-      </label>
       <button
         class={`save-button ${state.dirty ? "dirty" : "saved"}`}
         type="button"

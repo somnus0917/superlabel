@@ -5,9 +5,21 @@ import {
   renameClass,
   selectBox,
   setActiveClass,
+  setAutoSave,
+  setLanguage,
+  setOnnxConfidence,
+  setOnnxInputSize,
+  setOnnxModelPath,
+  setOnnxNms,
+  setOutputFormat,
+  setRightPanelTab,
   state,
 } from "../stores/app";
+import type { Language, OutputFormat, RightPanelTab } from "../types";
+import { pickOnnxModel } from "../utils/fs";
 import { tr } from "../utils/i18n";
+
+const PANEL_TABS: RightPanelTab[] = ["classes", "annotations", "assist", "export"];
 
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
@@ -43,123 +55,265 @@ export default function RightPanel() {
     setEditingClassName("");
   }
 
+  async function chooseOnnxModel() {
+    const modelPath = await pickOnnxModel(tr(state.language, "dialogOpenOnnxModel"));
+    if (modelPath) {
+      setOnnxModelPath(modelPath);
+    }
+  }
+
+  function modelName() {
+    if (!state.onnxModelPath) return tr(state.language, "noOnnxModel");
+    return state.onnxModelPath.split(/[\\/]/).pop() ?? state.onnxModelPath;
+  }
+
+  function tabLabel(tab: RightPanelTab) {
+    if (tab === "classes") return tr(state.language, "classes");
+    if (tab === "annotations") return tr(state.language, "annotations");
+    if (tab === "assist") return tr(state.language, "assist");
+    return tr(state.language, "export");
+  }
+
   return (
     <aside class="right-panel panel">
-      <section class="right-section">
-        <header class="panel-header">
-          <span>{tr(state.language, "classes")}</span>
-        </header>
-        <div class="class-list">
-          <For each={state.project?.classes ?? []}>
-            {(item) => (
-              <div
-                class={`class-row ${state.activeClassId === item.id ? "active" : ""}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => setActiveClass(item.id)}
-              >
-                <span class="swatch" style={{ "background-color": item.color }} />
-                <Show
-                  when={editingClassId() === item.id}
-                  fallback={<span class="truncate">{item.name}</span>}
-                >
-                  <input
-                    class="class-rename-input"
-                    value={editingClassName()}
-                    onClick={(event) => event.stopPropagation()}
-                    onInput={(event) => setEditingClassName(event.currentTarget.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        commitRenameClass();
-                      }
-                      if (event.key === "Escape") {
-                        event.preventDefault();
-                        cancelRenameClass();
-                      }
-                    }}
-                    onBlur={commitRenameClass}
-                    autofocus
-                  />
-                </Show>
-                <span class="muted">#{item.id}</span>
-                <button
-                  type="button"
-                  class="rename-button"
-                  title={tr(state.language, "renameClass")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    startRenameClass(item.id, item.name);
-                  }}
-                >
-                  ✎
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-        <form class="add-class" onSubmit={submitClass}>
-          <input
-            value={className()}
-            onInput={(event) => setClassName(event.currentTarget.value)}
-            placeholder={tr(state.language, "newClass")}
-          />
-          <button type="submit">+</button>
-        </form>
-      </section>
+      <nav class="panel-tabs">
+        <For each={PANEL_TABS}>
+          {(tab) => (
+            <button
+              class={`panel-tab ${state.rightPanelTab === tab ? "active" : ""}`}
+              type="button"
+              onClick={() => setRightPanelTab(tab)}
+            >
+              {tabLabel(tab)}
+            </button>
+          )}
+        </For>
+      </nav>
 
-      <section class="right-section annotations-section">
-        <header class="panel-header">
-          <span>{tr(state.language, "annotations")}</span>
-          <span class="badge">{state.currentBoxes.length}</span>
-        </header>
-        <div class="annotation-list">
-          <Show
-            when={state.currentBoxes.length > 0}
-            fallback={<p class="empty-hint">{tr(state.language, "noAnnotations")}</p>}
-          >
-            <For each={state.currentBoxes}>
-              {(box) => {
-                const item = () => classForId(box.classId);
-                return (
-                  <button
-                    class={`annotation-row ${state.selectedBoxId === box.id ? "active" : ""}`}
-                    type="button"
-                    onClick={() => selectBox(box.id)}
+      <div class="panel-tab-body">
+        <Show when={state.rightPanelTab === "classes"}>
+          <section class="right-tab-content">
+            <header class="panel-header">
+              <span>{tr(state.language, "classes")}</span>
+            </header>
+            <div class="class-list">
+              <For each={state.project?.classes ?? []}>
+                {(item) => (
+                  <div
+                    class={`class-row ${state.activeClassId === item.id ? "active" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setActiveClass(item.id)}
+                  >
+                    <span class="swatch" style={{ "background-color": item.color }} />
+                    <Show
+                      when={editingClassId() === item.id}
+                      fallback={<span class="truncate">{item.name}</span>}
                     >
-                    <span class="swatch" style={{ "background-color": item()?.color ?? "#4a9eff" }} />
-                    <span class="truncate">{item()?.name ?? `${tr(state.language, "classPrefix")} #${box.classId}`}</span>
-                    <span
-                      class="delete-button"
-                      role="button"
-                      tabIndex={0}
+                      <input
+                        class="class-rename-input"
+                        value={editingClassName()}
+                        onClick={(event) => event.stopPropagation()}
+                        onInput={(event) => setEditingClassName(event.currentTarget.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            commitRenameClass();
+                          }
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelRenameClass();
+                          }
+                        }}
+                        onBlur={commitRenameClass}
+                        autofocus
+                      />
+                    </Show>
+                    <span class="muted">#{item.id}</span>
+                    <button
+                      type="button"
+                      class="rename-button"
+                      title={tr(state.language, "renameClass")}
                       onClick={(event) => {
                         event.stopPropagation();
-                        deleteBox(box.id);
+                        startRenameClass(item.id, item.name);
                       }}
                     >
-                      x
-                    </span>
-                  </button>
-                );
-              }}
-            </For>
-          </Show>
-        </div>
-      </section>
+                      ✎
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+            <form class="add-class" onSubmit={submitClass}>
+              <input
+                value={className()}
+                onInput={(event) => setClassName(event.currentTarget.value)}
+                placeholder={tr(state.language, "newClass")}
+              />
+              <button type="submit">+</button>
+            </form>
+          </section>
+        </Show>
 
-      <section class="right-section shortcuts-section">
-        <header class="panel-header">
-          <span>{tr(state.language, "shortcuts")}</span>
-        </header>
-        <div class="shortcut-grid">
-          <span>D</span><span>{tr(state.language, "draw")}</span>
-          <span>Esc</span><span>{tr(state.language, "select")}</span>
-          <span>&larr; &rarr;</span><span>{tr(state.language, "image")}</span>
-          <span>Ctrl+S</span><span>{tr(state.language, "save")}</span>
-          <span>Del</span><span>{tr(state.language, "delete")}</span>
-        </div>
-      </section>
+        <Show when={state.rightPanelTab === "annotations"}>
+          <section class="right-tab-content">
+            <header class="panel-header">
+              <span>{tr(state.language, "annotations")}</span>
+              <span class="badge">{state.currentBoxes.length}</span>
+            </header>
+            <div class="annotation-list">
+              <Show
+                when={state.currentBoxes.length > 0}
+                fallback={<p class="empty-hint">{tr(state.language, "noAnnotations")}</p>}
+              >
+                <For each={state.currentBoxes}>
+                  {(box) => {
+                    const item = () => classForId(box.classId);
+                    return (
+                      <button
+                        class={`annotation-row ${state.selectedBoxId === box.id ? "active" : ""}`}
+                        type="button"
+                        onClick={() => selectBox(box.id)}
+                      >
+                        <span class="swatch" style={{ "background-color": item()?.color ?? "#4a9eff" }} />
+                        <span class="truncate">{item()?.name ?? `${tr(state.language, "classPrefix")} #${box.classId}`}</span>
+                        <span
+                          class="delete-button"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteBox(box.id);
+                          }}
+                        >
+                          x
+                        </span>
+                      </button>
+                    );
+                  }}
+                </For>
+              </Show>
+            </div>
+          </section>
+        </Show>
+
+        <Show when={state.rightPanelTab === "assist"}>
+          <section class="right-tab-content">
+            <header class="panel-header">
+              <span>{tr(state.language, "assist")}</span>
+            </header>
+            <div class="control-stack">
+              <label class="control-field">
+                <span>{tr(state.language, "onnxModel")}</span>
+                <div class="inline-control">
+                  <button class="panel-button" type="button" onClick={chooseOnnxModel}>
+                    {tr(state.language, "choose")}
+                  </button>
+                  <span class="truncate muted" title={state.onnxModelPath ?? ""}>{modelName()}</span>
+                </div>
+              </label>
+              <label class="control-field">
+                <span>{tr(state.language, "inputSize")}</span>
+                <input
+                  type="number"
+                  min="32"
+                  step="32"
+                  value={state.onnxInputSize}
+                  onInput={(event) => setOnnxInputSize(event.currentTarget.valueAsNumber)}
+                />
+              </label>
+              <label class="control-field">
+                <span>{tr(state.language, "threshold")} <b>{state.onnxConfidence.toFixed(2)}</b></span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={state.onnxConfidence}
+                  onInput={(event) => setOnnxConfidence(event.currentTarget.valueAsNumber)}
+                />
+              </label>
+              <label class="control-field">
+                <span>{tr(state.language, "nms")} <b>{state.onnxNms.toFixed(2)}</b></span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={state.onnxNms}
+                  onInput={(event) => setOnnxNms(event.currentTarget.valueAsNumber)}
+                />
+              </label>
+              <div class="button-grid">
+                <button class="panel-button primary" type="button" disabled>
+                  {tr(state.language, "runCurrentImage")}
+                </button>
+                <button class="panel-button" type="button" disabled>
+                  {tr(state.language, "acceptAll")}
+                </button>
+                <button class="panel-button" type="button" disabled>
+                  {tr(state.language, "clearSuggestions")}
+                </button>
+              </div>
+            </div>
+          </section>
+        </Show>
+
+        <Show when={state.rightPanelTab === "export"}>
+          <section class="right-tab-content">
+            <header class="panel-header">
+              <span>{tr(state.language, "export")}</span>
+            </header>
+            <div class="control-stack">
+              <label class="control-field">
+                <span>{tr(state.language, "format")}</span>
+                <select
+                  value={state.outputFormat}
+                  onChange={(event) => setOutputFormat(event.currentTarget.value as OutputFormat)}
+                >
+                  <option value="yolo">{tr(state.language, "outputYolo")}</option>
+                  <option value="coco">{tr(state.language, "outputCoco")}</option>
+                </select>
+              </label>
+              <label class="control-field">
+                <span>{tr(state.language, "language")}</span>
+                <select
+                  value={state.language}
+                  onChange={(event) => setLanguage(event.currentTarget.value as Language)}
+                >
+                  <option value="en">EN</option>
+                  <option value="zh">中文</option>
+                </select>
+              </label>
+              <label class={`autosave-toggle panel-toggle ${state.autoSave ? "active" : ""}`}>
+                <span>{tr(state.language, "autosave")}</span>
+                <input
+                  type="checkbox"
+                  checked={state.autoSave}
+                  onChange={(event) => setAutoSave(event.currentTarget.checked)}
+                />
+                <span class="switch-track" aria-hidden="true">
+                  <span class="switch-thumb" />
+                </span>
+              </label>
+            </div>
+
+            <section class="shortcut-panel">
+              <header class="panel-header compact">
+                <span>{tr(state.language, "shortcuts")}</span>
+              </header>
+              <div class="shortcut-grid">
+                <span>D</span><span>{tr(state.language, "draw")}</span>
+                <span>Esc</span><span>{tr(state.language, "select")}</span>
+                <span>&larr; &rarr;</span><span>{tr(state.language, "image")}</span>
+                <span>Ctrl+S</span><span>{tr(state.language, "save")}</span>
+                <span>Del</span><span>{tr(state.language, "delete")}</span>
+              </div>
+            </section>
+          </section>
+        </Show>
+      </div>
     </aside>
   );
 }
