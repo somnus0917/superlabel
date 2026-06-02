@@ -1,5 +1,5 @@
-import { state, setAutoSave, setDrawMode, setLanguage } from "../stores/app";
-import type { Language } from "../types";
+import { state, setAutoSave, setDrawMode, setLanguage, setOutputFormat } from "../stores/app";
+import type { Language, OutputFormat } from "../types";
 import { tr } from "../utils/i18n";
 
 interface Props {
@@ -49,7 +49,17 @@ export default function Toolbar(props: Props) {
         ↖ {tr(state.language, "select")}
       </button>
       <div class="toolbar-spacer" />
-      <label class="language-select">
+      <label class="toolbar-select">
+        <span>{tr(state.language, "format")}</span>
+        <select
+          value={state.outputFormat}
+          onChange={(event) => setOutputFormat(event.currentTarget.value as OutputFormat)}
+        >
+          <option value="yolo">{tr(state.language, "outputYolo")}</option>
+          <option value="coco">{tr(state.language, "outputCoco")}</option>
+        </select>
+      </label>
+      <label class="toolbar-select">
         <span>{tr(state.language, "language")}</span>
         <select
           value={state.language}

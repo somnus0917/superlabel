@@ -29,3 +29,4 @@ export interface ProjectState {
 
 export type DrawMode = "draw" | "select";
 export type Language = "en" | "zh";
+export type OutputFormat = "yolo" | "coco";

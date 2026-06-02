@@ -133,7 +133,7 @@ button:disabled {
   color: var(--accent-orange);
 }
 
-.language-select {
+.toolbar-select {
   height: 30px;
   display: inline-flex;
   align-items: center;
@@ -146,7 +146,7 @@ button:disabled {
   font-size: 13px;
 }
 
-.language-select select {
+.toolbar-select select {
   height: 22px;
   min-width: 62px;
   border: 1px solid var(--border);

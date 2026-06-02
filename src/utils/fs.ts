@@ -77,3 +77,7 @@ export async function readClassesFile(folderPath: string): Promise<string> {
 export async function writeClassesFile(folderPath: string, content: string): Promise<void> {
   await writeTextFile(joinPath(folderPath, "classes.txt"), content);
 }
+
+export async function writeCocoFile(folderPath: string, content: string): Promise<void> {
+  await writeTextFile(joinPath(folderPath, "annotations.json"), content);
+}

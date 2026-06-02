@@ -12,14 +12,17 @@ import {
   state,
 } from "./stores/app";
 import { parseClasses, parseYolo, serializeClasses, serializeYolo } from "./utils/yolo";
+import type { ImageEntry } from "./types";
 import {
   loadImagesFromFolder,
   pickFolder,
   readClassesFile,
   readLabelFile,
   writeClassesFile,
+  writeCocoFile,
   writeLabelFile,
 } from "./utils/fs";
+import { serializeCoco, type CocoImageAnnotations } from "./utils/coco";
 import { tr } from "./utils/i18n";
 
 export default function App() {
@@ -33,6 +36,41 @@ export default function App() {
     return convertFileSrc(image.fullPath);
   };
 
+  function loadImageSize(image: ImageEntry) {
+    return new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.onerror = () => {
+        reject(new Error(`Unable to load image: ${image.filename}`));
+      };
+      img.src = convertFileSrc(image.fullPath);
+    });
+  }
+
+  async function buildCocoAnnotations(): Promise<CocoImageAnnotations[]> {
+    const project = state.project;
+    if (!project) return [];
+
+    return Promise.all(
+      project.images.map(async (image, index) => {
+        const size = await loadImageSize(image);
+        const boxes =
+          index === project.currentIndex
+            ? state.currentBoxes
+            : parseYolo(await readLabelFile(project.labelFolderPath, image.filename));
+
+        return {
+          image,
+          width: size.width,
+          height: size.height,
+          boxes,
+        };
+      }),
+    );
+  }
+
   async function handleSave() {
     const project = state.project;
     if (!project) return;
@@ -40,6 +78,10 @@ export default function App() {
     if (!image) return;
     await writeLabelFile(project.labelFolderPath, image.filename, serializeYolo(state.currentBoxes));
     await writeClassesFile(project.labelFolderPath, serializeClasses(project.classes));
+    if (state.outputFormat === "coco") {
+      const cocoAnnotations = await buildCocoAnnotations();
+      await writeCocoFile(project.labelFolderPath, serializeCoco(cocoAnnotations, project.classes));
+    }
     markSaved(image.filename);
   }
 
