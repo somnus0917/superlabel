@@ -117,6 +117,19 @@ export function addClass(name: string) {
   );
 }
 
+export function renameClass(id: number, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed || !state.project) return;
+  setState(
+    produce((draft) => {
+      const annotationClass = draft.project?.classes.find((item) => item.id === id);
+      if (!annotationClass || annotationClass.name === trimmed) return;
+      annotationClass.name = trimmed;
+      draft.dirty = true;
+    }),
+  );
+}
+
 export function setActiveClass(id: number) {
   setState("activeClassId", id);
 }

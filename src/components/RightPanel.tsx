@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import {
   addClass,
   deleteBox,
+  renameClass,
   selectBox,
   setActiveClass,
   state,
@@ -10,6 +11,8 @@ import { tr } from "../utils/i18n";
 
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
+  const [editingClassId, setEditingClassId] = createSignal<number | null>(null);
+  const [editingClassName, setEditingClassName] = createSignal("");
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -21,6 +24,25 @@ export default function RightPanel() {
     return state.project?.classes.find((item) => item.id === id);
   }
 
+  function startRenameClass(id: number, name: string) {
+    setEditingClassId(id);
+    setEditingClassName(name);
+  }
+
+  function commitRenameClass() {
+    const id = editingClassId();
+    if (id !== null) {
+      renameClass(id, editingClassName());
+    }
+    setEditingClassId(null);
+    setEditingClassName("");
+  }
+
+  function cancelRenameClass() {
+    setEditingClassId(null);
+    setEditingClassName("");
+  }
+
   return (
     <aside class="right-panel panel">
       <section class="right-section">
@@ -30,15 +52,49 @@ export default function RightPanel() {
         <div class="class-list">
           <For each={state.project?.classes ?? []}>
             {(item) => (
-              <button
+              <div
                 class={`class-row ${state.activeClassId === item.id ? "active" : ""}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => setActiveClass(item.id)}
               >
                 <span class="swatch" style={{ "background-color": item.color }} />
-                <span class="truncate">{item.name}</span>
+                <Show
+                  when={editingClassId() === item.id}
+                  fallback={<span class="truncate">{item.name}</span>}
+                >
+                  <input
+                    class="class-rename-input"
+                    value={editingClassName()}
+                    onClick={(event) => event.stopPropagation()}
+                    onInput={(event) => setEditingClassName(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitRenameClass();
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelRenameClass();
+                      }
+                    }}
+                    onBlur={commitRenameClass}
+                    autofocus
+                  />
+                </Show>
                 <span class="muted">#{item.id}</span>
-              </button>
+                <button
+                  type="button"
+                  class="rename-button"
+                  title={tr(state.language, "renameClass")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startRenameClass(item.id, item.name);
+                  }}
+                >
+                  ✎
+                </button>
+              </div>
             )}
           </For>
         </div>
