@@ -1153,33 +1153,14 @@ export default function AnnotationCanvas(props: Props) {
   });
 
   createEffect(() => {
-    state.suggestedBoxes
-      .map(
-        (box) =>
-          `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`,
-      )
-      .join("|");
-    state.currentBoxes
-      .map(
-        (box) =>
-          `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`,
-      )
-      .join("|");
-    state.currentShapes
-      .map(
-        (shape) =>
-          `${shape.id}:${shape.kind}:${shape.classId}:${shape.points
-            .map((point) => `${point.x}:${point.y}`)
-            .join(",")}`,
-      )
-      .join("|");
+    void state.suggestedBoxes;
+    void state.currentBoxes;
+    void state.currentShapes;
     state.selectedBoxId;
     state.selectedShapeId;
     state.drawMode;
     state.shapeTool;
-    state.project?.classes
-      .map((item) => `${item.id}:${item.name}:${item.color}`)
-      .join("|");
+    void state.project?.classes;
     renderBoxes();
   });
 

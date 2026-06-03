@@ -318,7 +318,27 @@ fn export_coco_file(
 }
 
 #[tauri::command]
-fn compute_project_stats(
+async fn compute_project_stats(
+    folder_path: String,
+    images: Vec<ImageEntry>,
+    classes: Vec<AnnotationClass>,
+    current_image_filename: String,
+    current_boxes: Vec<BBox>,
+) -> Result<ProjectStats, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        compute_project_stats_blocking(
+            folder_path,
+            images,
+            classes,
+            current_image_filename,
+            current_boxes,
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+fn compute_project_stats_blocking(
     folder_path: String,
     images: Vec<ImageEntry>,
     classes: Vec<AnnotationClass>,

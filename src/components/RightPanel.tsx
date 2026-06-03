@@ -90,6 +90,7 @@ export default function RightPanel() {
   const [dataYamlStatus, setDataYamlStatus] = createSignal("");
   let statsRequestId = 0;
   let dataYamlStatusTimer = 0;
+  let cancelAllDetection = false;
 
   createEffect(() => {
     if (state.rightPanelTab !== "stats") return;
@@ -109,18 +110,9 @@ export default function RightPanel() {
       classId: box.classId,
     }));
     project.labelFolderPath;
-    project.images
-      .map((image) => `${image.filename}:${image.annotated}`)
-      .join("|");
-    project.classes
-      .map((item) => `${item.id}:${item.name}:${item.color}`)
-      .join("|");
-    currentBoxes
-      .map(
-        (box) =>
-          `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`,
-      )
-      .join("|");
+    project.images.length;
+    project.classes.length;
+    currentBoxes.length;
 
     void refreshProjectStats(currentImage?.filename ?? "", currentBoxes);
   });
@@ -359,6 +351,7 @@ export default function RightPanel() {
     const project = state.project;
     if (!state.onnxModelPath || !project || isRunningOnnx()) return;
 
+    cancelAllDetection = false;
     setIsRunningOnnx(true);
     setOnnxRunMode("all");
     setOnnxStatus(tr(state.language, "prelabelingAll"));
@@ -367,7 +360,9 @@ export default function RightPanel() {
     try {
       await waitForNextPaint();
       let totalBoxes = 0;
+      let processedImages = 0;
       for (const [index, image] of project.images.entries()) {
+        if (cancelAllDetection) break;
         setOnnxProgress(`${index + 1}/${project.images.length}`);
         setOnnxProgressRatio(index / project.images.length);
         const boxes = await runOnnxDetection(
@@ -381,12 +376,19 @@ export default function RightPanel() {
           state.onnxClassMax,
         );
         totalBoxes += boxes.length;
+        processedImages += 1;
         setSuggestedBoxes(boxes, image.filename);
         setOnnxProgressRatio((index + 1) / project.images.length);
       }
-      setOnnxStatus(
-        `${project.images.length} ${tr(state.language, "imagesProcessed")}, ${totalBoxes} ${tr(state.language, "suggestionsReady")}`,
-      );
+      if (cancelAllDetection) {
+        setOnnxStatus(
+          `${tr(state.language, "cancelled")}: ${processedImages}/${project.images.length}, ${totalBoxes} ${tr(state.language, "suggestionsReady")}`,
+        );
+      } else {
+        setOnnxStatus(
+          `${project.images.length} ${tr(state.language, "imagesProcessed")}, ${totalBoxes} ${tr(state.language, "suggestionsReady")}`,
+        );
+      }
     } catch (error) {
       setOnnxStatus(
         `${tr(state.language, "inferenceFailed")}: ${String(error)}`,
@@ -399,6 +401,11 @@ export default function RightPanel() {
         setOnnxProgressRatio(0);
       }, 400);
     }
+  }
+
+  function cancelDetection() {
+    cancelAllDetection = true;
+    setOnnxStatus(tr(state.language, "cancelling"));
   }
 
   function tabLabel(tab: RightPanelTab) {
@@ -975,12 +982,18 @@ export default function RightPanel() {
                   type="button"
                   aria-busy={onnxRunMode() === "all"}
                   disabled={
-                    !state.onnxModelPath || !state.project || isRunningOnnx()
+                    !state.onnxModelPath ||
+                    !state.project ||
+                    (isRunningOnnx() && onnxRunMode() !== "all")
                   }
-                  onClick={runAllImagesDetection}
+                  onClick={
+                    onnxRunMode() === "all"
+                      ? cancelDetection
+                      : runAllImagesDetection
+                  }
                 >
                   {onnxRunMode() === "all"
-                    ? tr(state.language, "prelabeling")
+                    ? tr(state.language, "cancel")
                     : tr(state.language, "runAllImages")}
                 </button>
                 <button
@@ -1076,7 +1089,7 @@ export default function RightPanel() {
                 disabled={!state.project}
                 onClick={generateDataYamlFile}
               >
-                Generate data.yaml
+                {tr(state.language, "generateDataYaml")}
               </button>
               <Show when={dataYamlStatus()}>
                 <p class="empty-hint compact">{dataYamlStatus()}</p>

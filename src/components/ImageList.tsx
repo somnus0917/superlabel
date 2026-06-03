@@ -33,7 +33,7 @@ export default function ImageList(props: Props) {
           disabled={firstUnannotatedIndex() < 0}
           onClick={handleGoToFirstUnannotated}
         >
-          → First unlabeled
+          {tr(state.language, "firstUnlabeled")}
         </button>
       </div>
       <div class="image-rows">
