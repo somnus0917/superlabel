@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import {
   addClass,
   acceptSuggestedBoxes,
@@ -30,10 +31,12 @@ import type {
   Language,
   ModelProfile,
   OutputFormat,
+  ProjectStats,
   RightPanelTab,
   ShapeTool,
 } from "../types";
 import {
+  computeProjectStats,
   downloadModelFile,
   pickModelProfile,
   pickModelProfileSavePath,
@@ -49,6 +52,7 @@ import { MODEL_PRESETS } from "../utils/modelPresets";
 const PANEL_TABS: RightPanelTab[] = [
   "classes",
   "annotations",
+  "stats",
   "assist",
   "export",
 ];
@@ -77,6 +81,43 @@ export default function RightPanel() {
   const [downloadProgressText, setDownloadProgressText] = createSignal("");
   const [onnxProgressRatio, setOnnxProgressRatio] = createSignal(0);
   const [onnxRunMode, setOnnxRunMode] = createSignal<OnnxRunMode>("idle");
+  const [projectStats, setProjectStats] = createSignal<ProjectStats | null>(
+    null,
+  );
+  const [isLoadingStats, setIsLoadingStats] = createSignal(false);
+  const [statsError, setStatsError] = createSignal("");
+  let statsRequestId = 0;
+
+  createEffect(() => {
+    if (state.rightPanelTab !== "stats") return;
+    const project = state.project;
+    if (!project) {
+      setProjectStats(null);
+      return;
+    }
+
+    const currentImage = project.images[project.currentIndex];
+    const currentBoxes = state.currentBoxes.map((box) => ({
+      id: box.id,
+      cx: box.cx,
+      cy: box.cy,
+      w: box.w,
+      h: box.h,
+      classId: box.classId,
+    }));
+    project.labelFolderPath;
+    project.images
+      .map((image) => `${image.filename}:${image.annotated}`)
+      .join("|");
+    project.classes
+      .map((item) => `${item.id}:${item.name}:${item.color}`)
+      .join("|");
+    currentBoxes
+      .map((box) => `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`)
+      .join("|");
+
+    void refreshProjectStats(currentImage?.filename ?? "", currentBoxes);
+  });
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -105,6 +146,40 @@ export default function RightPanel() {
   function cancelRenameClass() {
     setEditingClassId(null);
     setEditingClassName("");
+  }
+
+  async function refreshProjectStats(
+    currentImageFilename?: string,
+    currentBoxes = state.currentBoxes,
+  ) {
+    const project = state.project;
+    if (!project) return;
+
+    const requestId = ++statsRequestId;
+    setIsLoadingStats(true);
+    setStatsError("");
+    try {
+      const stats = await computeProjectStats(
+        project.labelFolderPath,
+        project.images.map((image) => ({ ...image })),
+        project.classes.map((item) => ({ ...item })),
+        currentImageFilename ??
+          project.images[project.currentIndex]?.filename ??
+          "",
+        currentBoxes.map((box) => ({ ...box })),
+      );
+      if (requestId === statsRequestId) {
+        setProjectStats(stats);
+      }
+    } catch (error) {
+      if (requestId === statsRequestId) {
+        setStatsError(String(error));
+      }
+    } finally {
+      if (requestId === statsRequestId) {
+        setIsLoadingStats(false);
+      }
+    }
   }
 
   async function chooseOnnxModel() {
@@ -310,6 +385,7 @@ export default function RightPanel() {
   function tabLabel(tab: RightPanelTab) {
     if (tab === "classes") return tr(state.language, "classes");
     if (tab === "annotations") return tr(state.language, "annotations");
+    if (tab === "stats") return tr(state.language, "stats");
     if (tab === "assist") return tr(state.language, "assist");
     return tr(state.language, "export");
   }
@@ -564,6 +640,133 @@ export default function RightPanel() {
                 </For>
               </Show>
             </div>
+          </section>
+        </Show>
+
+        <Show when={state.rightPanelTab === "stats"}>
+          <section class="right-tab-content">
+            <header class="panel-header">
+              <span>{tr(state.language, "stats")}</span>
+              <button
+                class={`refresh-button ${isLoadingStats() ? "is-loading" : ""}`}
+                type="button"
+                aria-busy={isLoadingStats()}
+                disabled={!state.project || isLoadingStats()}
+                onClick={() => void refreshProjectStats()}
+              >
+                {tr(state.language, "refresh")}
+              </button>
+            </header>
+            <Show
+              when={state.project}
+              fallback={<p class="empty-hint">{tr(state.language, "noImages")}</p>}
+            >
+              <Show
+                when={!statsError()}
+                fallback={
+                  <p class="empty-hint compact">
+                    {tr(state.language, "statsFailed")}: {statsError()}
+                  </p>
+                }
+              >
+                <Show
+                  when={projectStats()}
+                  fallback={<p class="empty-hint">{tr(state.language, "statsLoading")}</p>}
+                >
+                  {(stats) => (
+                    <div class="stats-panel">
+                      <div class="stats-summary-grid">
+                        <StatCard
+                          label={tr(state.language, "annotatedImages")}
+                          value={`${stats().annotatedImages}/${stats().totalImages}`}
+                        />
+                        <StatCard
+                          label={tr(state.language, "unannotatedImages")}
+                          value={String(stats().unannotatedImages)}
+                        />
+                        <StatCard
+                          label={tr(state.language, "totalBoxes")}
+                          value={String(stats().totalBoxes)}
+                        />
+                        <StatCard
+                          label={tr(state.language, "estimatedRemaining")}
+                          value={formatMinutes(stats().estimatedRemainingMinutes)}
+                        />
+                      </div>
+
+                      <StatsBlock title={tr(state.language, "classDistribution")}>
+                        <Show
+                          when={stats().classCounts.length > 0}
+                          fallback={
+                            <p class="empty-hint compact">
+                              {tr(state.language, "noClassStats")}
+                            </p>
+                          }
+                        >
+                          <div class="bar-list">
+                            <For each={stats().classCounts}>
+                              {(item) => (
+                                <ChartBar
+                                  label={`#${item.classId} ${item.name}`}
+                                  value={item.count}
+                                  max={maxClassCount(stats())}
+                                  color={item.color}
+                                />
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </StatsBlock>
+
+                      <StatsBlock title={tr(state.language, "bboxQuality")}>
+                        <div class="metric-grid">
+                          <StatCard
+                            label={tr(state.language, "avgBoxSize")}
+                            value={`${formatPercent(stats().avgBboxArea)}`}
+                          />
+                          <StatCard
+                            label={tr(state.language, "avgBoxWidth")}
+                            value={formatPercent(stats().avgBboxWidth)}
+                          />
+                          <StatCard
+                            label={tr(state.language, "avgBoxHeight")}
+                            value={formatPercent(stats().avgBboxHeight)}
+                          />
+                          <StatCard
+                            label={tr(state.language, "avgAspectRatio")}
+                            value={formatNumber(stats().avgAspectRatio)}
+                          />
+                        </div>
+                      </StatsBlock>
+
+                      <StatsBlock title={tr(state.language, "aspectRatioDistribution")}>
+                        <Show
+                          when={stats().totalBoxes > 0}
+                          fallback={
+                            <p class="empty-hint compact">
+                              {tr(state.language, "noBboxStats")}
+                            </p>
+                          }
+                        >
+                          <div class="bar-list compact">
+                            <For each={stats().aspectRatioBins}>
+                              {(bin) => (
+                                <ChartBar
+                                  label={aspectRatioLabel(bin.key)}
+                                  value={bin.count}
+                                  max={maxAspectRatioCount(stats())}
+                                  color="#88ccff"
+                                />
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                      </StatsBlock>
+                    </div>
+                  )}
+                </Show>
+              </Show>
+            </Show>
           </section>
         </Show>
 
@@ -870,6 +1073,51 @@ export default function RightPanel() {
   );
 }
 
+function StatsBlock(props: { title: string; children: JSX.Element }) {
+  return (
+    <section class="stats-block">
+      <header>{props.title}</header>
+      {props.children}
+    </section>
+  );
+}
+
+function StatCard(props: { label: string; value: string }) {
+  return (
+    <div class="stat-card">
+      <span>{props.label}</span>
+      <strong>{props.value}</strong>
+    </div>
+  );
+}
+
+function ChartBar(props: {
+  label: string;
+  value: number;
+  max: number;
+  color: string;
+}) {
+  const width = () =>
+    `${props.max > 0 ? Math.max(4, (props.value / props.max) * 100) : 0}%`;
+  return (
+    <div class="chart-bar-row">
+      <div class="chart-bar-meta">
+        <span class="truncate">{props.label}</span>
+        <b>{props.value}</b>
+      </div>
+      <div class="chart-bar-track" aria-hidden="true">
+        <div
+          class="chart-bar-fill"
+          style={{
+            width: width(),
+            "background-color": props.color,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function parseModelProfile(text: string): ModelProfile {
   const value = JSON.parse(text) as Partial<ModelProfile>;
   if (value.type !== "yolo") {
@@ -928,6 +1176,38 @@ function profileNameFromPath(path: string) {
 
 function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function maxClassCount(stats: ProjectStats) {
+  return Math.max(0, ...stats.classCounts.map((item) => item.count));
+}
+
+function maxAspectRatioCount(stats: ProjectStats) {
+  return Math.max(0, ...stats.aspectRatioBins.map((item) => item.count));
+}
+
+function formatPercent(value: number) {
+  return `${(value * 100).toFixed(value < 0.01 ? 2 : 1)}%`;
+}
+
+function formatNumber(value: number) {
+  return value > 0 ? value.toFixed(2) : "-";
+}
+
+function formatMinutes(minutes: number) {
+  if (minutes <= 0) return "0m";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+function aspectRatioLabel(key: string) {
+  if (key === "veryTall") return tr(state.language, "aspectVeryTall");
+  if (key === "tall") return tr(state.language, "aspectTall");
+  if (key === "square") return tr(state.language, "aspectSquare");
+  if (key === "wide") return tr(state.language, "aspectWide");
+  return tr(state.language, "aspectVeryWide");
 }
 
 function waitForNextPaint() {

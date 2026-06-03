@@ -51,6 +51,39 @@ struct DownloadProgress {
     done: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClassSampleStats {
+    class_id: u32,
+    name: String,
+    color: String,
+    count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StatsBin {
+    key: String,
+    count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectStats {
+    total_images: u32,
+    annotated_images: u32,
+    unannotated_images: u32,
+    total_boxes: u32,
+    avg_boxes_per_annotated_image: f64,
+    avg_bbox_width: f64,
+    avg_bbox_height: f64,
+    avg_bbox_area: f64,
+    avg_aspect_ratio: f64,
+    estimated_remaining_minutes: u32,
+    class_counts: Vec<ClassSampleStats>,
+    aspect_ratio_bins: Vec<StatsBin>,
+}
+
 #[derive(Debug, Clone)]
 struct DetectionCandidate {
     class_id: u32,
@@ -280,6 +313,109 @@ fn export_coco_file(
     .map_err(|err| err.to_string())?;
 
     atomic_write(Path::new(&folder_path).join("annotations.json"), content)
+}
+
+#[tauri::command]
+fn compute_project_stats(
+    folder_path: String,
+    images: Vec<ImageEntry>,
+    classes: Vec<AnnotationClass>,
+    current_image_filename: String,
+    current_boxes: Vec<BBox>,
+) -> Result<ProjectStats, String> {
+    let mut class_counts: Vec<ClassSampleStats> = classes
+        .iter()
+        .map(|item| ClassSampleStats {
+            class_id: item.id,
+            name: item.name.clone(),
+            color: item.color.clone(),
+            count: 0,
+        })
+        .collect();
+    let mut unknown_class_counts: Vec<ClassSampleStats> = Vec::new();
+    let mut aspect_ratio_bins = vec![
+        StatsBin {
+            key: "veryTall".to_string(),
+            count: 0,
+        },
+        StatsBin {
+            key: "tall".to_string(),
+            count: 0,
+        },
+        StatsBin {
+            key: "square".to_string(),
+            count: 0,
+        },
+        StatsBin {
+            key: "wide".to_string(),
+            count: 0,
+        },
+        StatsBin {
+            key: "veryWide".to_string(),
+            count: 0,
+        },
+    ];
+
+    let mut annotated_images = 0u32;
+    let mut total_boxes = 0u32;
+    let mut total_width = 0.0f64;
+    let mut total_height = 0.0f64;
+    let mut total_area = 0.0f64;
+    let mut total_aspect_ratio = 0.0f64;
+    let mut aspect_ratio_samples = 0u32;
+
+    for image in &images {
+        let boxes = if image.filename == current_image_filename {
+            current_boxes.clone()
+        } else {
+            parse_yolo(&read_label_file(folder_path.clone(), image.filename.clone())?)
+        };
+
+        if !boxes.is_empty() {
+            annotated_images += 1;
+        }
+
+        for bbox in boxes {
+            total_boxes += 1;
+            total_width += bbox.w;
+            total_height += bbox.h;
+            total_area += bbox.w * bbox.h;
+            if bbox.h > 0.0 {
+                let aspect_ratio = bbox.w / bbox.h;
+                total_aspect_ratio += aspect_ratio;
+                aspect_ratio_samples += 1;
+                increment_aspect_ratio_bin(&mut aspect_ratio_bins, aspect_ratio);
+            }
+            increment_class_count(&mut class_counts, &mut unknown_class_counts, bbox.class_id);
+        }
+    }
+
+    class_counts.extend(unknown_class_counts);
+
+    let total_images = images.len() as u32;
+    let unannotated_images = total_images.saturating_sub(annotated_images);
+    let avg_boxes_per_annotated_image = divide(total_boxes as f64, annotated_images as f64);
+    let avg_bbox_width = divide(total_width, total_boxes as f64);
+    let avg_bbox_height = divide(total_height, total_boxes as f64);
+    let avg_bbox_area = divide(total_area, total_boxes as f64);
+    let avg_aspect_ratio = divide(total_aspect_ratio, aspect_ratio_samples as f64);
+    let estimated_remaining_minutes =
+        estimate_remaining_minutes(unannotated_images, avg_boxes_per_annotated_image);
+
+    Ok(ProjectStats {
+        total_images,
+        annotated_images,
+        unannotated_images,
+        total_boxes,
+        avg_boxes_per_annotated_image,
+        avg_bbox_width,
+        avg_bbox_height,
+        avg_bbox_area,
+        avg_aspect_ratio,
+        estimated_remaining_minutes,
+        class_counts,
+        aspect_ratio_bins,
+    })
 }
 
 #[tauri::command]
@@ -539,6 +675,70 @@ fn parse_yolo(text: &str) -> Vec<BBox> {
             })
         })
         .collect()
+}
+
+fn increment_class_count(
+    class_counts: &mut [ClassSampleStats],
+    unknown_class_counts: &mut Vec<ClassSampleStats>,
+    class_id: u32,
+) {
+    if let Some(class_count) = class_counts
+        .iter_mut()
+        .find(|item| item.class_id == class_id)
+    {
+        class_count.count += 1;
+        return;
+    }
+
+    if let Some(class_count) = unknown_class_counts
+        .iter_mut()
+        .find(|item| item.class_id == class_id)
+    {
+        class_count.count += 1;
+        return;
+    }
+
+    unknown_class_counts.push(ClassSampleStats {
+        class_id,
+        name: format!("Class #{}", class_id),
+        color: "#888888".to_string(),
+        count: 1,
+    });
+}
+
+fn increment_aspect_ratio_bin(bins: &mut [StatsBin], aspect_ratio: f64) {
+    let key = if aspect_ratio < 0.5 {
+        "veryTall"
+    } else if aspect_ratio < 0.8 {
+        "tall"
+    } else if aspect_ratio <= 1.25 {
+        "square"
+    } else if aspect_ratio <= 2.0 {
+        "wide"
+    } else {
+        "veryWide"
+    };
+
+    if let Some(bin) = bins.iter_mut().find(|item| item.key == key) {
+        bin.count += 1;
+    }
+}
+
+fn divide(numerator: f64, denominator: f64) -> f64 {
+    if denominator <= 0.0 {
+        0.0
+    } else {
+        numerator / denominator
+    }
+}
+
+fn estimate_remaining_minutes(unannotated_images: u32, avg_boxes_per_image: f64) -> u32 {
+    if unannotated_images == 0 {
+        return 0;
+    }
+
+    let seconds_per_image = (45.0 + avg_boxes_per_image * 6.0).max(60.0);
+    ((unannotated_images as f64 * seconds_per_image) / 60.0).ceil() as u32
 }
 
 fn clamp01(value: f64) -> f64 {
@@ -978,6 +1178,7 @@ pub fn run() {
             write_text_file,
             download_model_file,
             export_coco_file,
+            compute_project_stats,
             run_onnx_detection,
         ])
         .setup(|app| {

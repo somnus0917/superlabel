@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AnnotationClass, BBox, ImageEntry } from "../types";
+import type {
+  AnnotationClass,
+  BBox,
+  ImageEntry,
+  ProjectStats,
+} from "../types";
 
 export async function pickFolder(title: string): Promise<string | null> {
   const selected = await open({
@@ -132,6 +137,22 @@ export async function exportCocoFile(
   currentBoxes: BBox[],
 ): Promise<void> {
   await invoke("export_coco_file", {
+    folderPath,
+    images,
+    classes,
+    currentImageFilename,
+    currentBoxes,
+  });
+}
+
+export async function computeProjectStats(
+  folderPath: string,
+  images: ImageEntry[],
+  classes: AnnotationClass[],
+  currentImageFilename: string,
+  currentBoxes: BBox[],
+): Promise<ProjectStats> {
+  return invoke("compute_project_stats", {
     folderPath,
     images,
     classes,

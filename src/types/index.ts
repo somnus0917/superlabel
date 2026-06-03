@@ -41,6 +41,33 @@ export interface ProjectState {
   classes: AnnotationClass[];
 }
 
+export interface ClassSampleStats {
+  classId: number;
+  name: string;
+  color: string;
+  count: number;
+}
+
+export interface StatsBin {
+  key: string;
+  count: number;
+}
+
+export interface ProjectStats {
+  totalImages: number;
+  annotatedImages: number;
+  unannotatedImages: number;
+  totalBoxes: number;
+  avgBoxesPerAnnotatedImage: number;
+  avgBboxWidth: number;
+  avgBboxHeight: number;
+  avgBboxArea: number;
+  avgAspectRatio: number;
+  estimatedRemainingMinutes: number;
+  classCounts: ClassSampleStats[];
+  aspectRatioBins: StatsBin[];
+}
+
 export interface ModelProfile {
   version: 1;
   name: string;
@@ -59,4 +86,9 @@ export type DrawMode = "draw" | "select";
 export type ShapeTool = "rect" | "polygon" | "point" | "circle" | "line";
 export type Language = "en" | "zh";
 export type OutputFormat = "yolo" | "coco";
-export type RightPanelTab = "classes" | "annotations" | "assist" | "export";
+export type RightPanelTab =
+  | "classes"
+  | "annotations"
+  | "stats"
+  | "assist"
+  | "export";
