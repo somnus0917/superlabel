@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { createSignal, For, Show } from "solid-js";
 import {
   addClass,
@@ -33,14 +34,17 @@ import type {
   ShapeTool,
 } from "../types";
 import {
+  downloadModelFile,
   pickModelProfile,
   pickModelProfileSavePath,
   pickOnnxModel,
+  pickPresetModelSavePath,
   readTextFile,
   runOnnxDetection,
   writeTextFile,
 } from "../utils/fs";
 import { tr } from "../utils/i18n";
+import { MODEL_PRESETS } from "../utils/modelPresets";
 
 const PANEL_TABS: RightPanelTab[] = [
   "classes",
@@ -49,6 +53,13 @@ const PANEL_TABS: RightPanelTab[] = [
   "export",
 ];
 
+interface DownloadProgress {
+  id: string;
+  downloaded: number;
+  total?: number;
+  done: boolean;
+}
+
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
   const [editingClassId, setEditingClassId] = createSignal<number | null>(null);
@@ -56,6 +67,13 @@ export default function RightPanel() {
   const [isRunningOnnx, setIsRunningOnnx] = createSignal(false);
   const [onnxStatus, setOnnxStatus] = createSignal("");
   const [onnxProgress, setOnnxProgress] = createSignal("");
+  const [selectedPresetId, setSelectedPresetId] = createSignal(
+    MODEL_PRESETS[0]?.id ?? "",
+  );
+  const [isDownloadingPreset, setIsDownloadingPreset] = createSignal(false);
+  const [downloadProgress, setDownloadProgress] = createSignal(0);
+  const [downloadProgressText, setDownloadProgressText] = createSignal("");
+  const [onnxProgressRatio, setOnnxProgressRatio] = createSignal(0);
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -133,6 +151,70 @@ export default function RightPanel() {
     return state.onnxProfileName ?? tr(state.language, "unsavedProfile");
   }
 
+  function selectedPreset() {
+    return MODEL_PRESETS.find((preset) => preset.id === selectedPresetId());
+  }
+
+  async function downloadSelectedPreset() {
+    const preset = selectedPreset();
+    if (!preset || isDownloadingPreset()) return;
+    const destinationPath = await pickPresetModelSavePath(
+      tr(state.language, "dialogSavePresetModel"),
+      preset.filename,
+    );
+    if (!destinationPath) return;
+
+    setIsDownloadingPreset(true);
+    setDownloadProgress(0);
+    setDownloadProgressText("");
+    setOnnxStatus(`${tr(state.language, "downloadingModel")}: ${preset.name}`);
+    const progressId = `${preset.id}-${Date.now()}`;
+    const unlisten = await listen<DownloadProgress>(
+      "model-download-progress",
+      (event) => {
+        if (event.payload.id !== progressId) return;
+        const { downloaded, total } = event.payload;
+        if (total && total > 0) {
+          setDownloadProgress(Math.min(1, downloaded / total));
+          setDownloadProgressText(
+            `${formatBytes(downloaded)} / ${formatBytes(total)}`,
+          );
+        } else {
+          setDownloadProgress(0);
+          setDownloadProgressText(formatBytes(downloaded));
+        }
+      },
+    );
+    try {
+      const modelPath = await downloadModelFile(
+        preset.url,
+        destinationPath,
+        progressId,
+      );
+      applyModelProfile({
+        version: 1,
+        name: preset.name,
+        type: "yolo",
+        modelPath,
+        inputSize: preset.inputSize,
+        confidence: state.onnxConfidence,
+        nms: state.onnxNms,
+        classMin: preset.classMin,
+        classMax: preset.classMax,
+      });
+      setOnnxStatus(`${tr(state.language, "modelDownloaded")}: ${preset.name}`);
+    } catch (error) {
+      setOnnxStatus(
+        `${tr(state.language, "downloadFailed")}: ${String(error)}`,
+      );
+    } finally {
+      unlisten();
+      setIsDownloadingPreset(false);
+      setDownloadProgress(0);
+      setDownloadProgressText("");
+    }
+  }
+
   async function runCurrentImageDetection() {
     const project = state.project;
     const image = project?.images[project.currentIndex];
@@ -140,6 +222,8 @@ export default function RightPanel() {
 
     setIsRunningOnnx(true);
     setOnnxStatus(tr(state.language, "inferenceRunning"));
+    setOnnxProgress("1/1");
+    setOnnxProgressRatio(0.15);
     try {
       const boxes = await runOnnxDetection(
         state.onnxModelPath,
@@ -155,12 +239,17 @@ export default function RightPanel() {
       setOnnxStatus(
         `${boxes.length} ${tr(state.language, "suggestionsReady")}`,
       );
+      setOnnxProgressRatio(1);
     } catch (error) {
       setOnnxStatus(
         `${tr(state.language, "inferenceFailed")}: ${String(error)}`,
       );
     } finally {
       setIsRunningOnnx(false);
+      window.setTimeout(() => {
+        setOnnxProgress("");
+        setOnnxProgressRatio(0);
+      }, 400);
     }
   }
 
@@ -171,10 +260,12 @@ export default function RightPanel() {
     setIsRunningOnnx(true);
     setOnnxStatus(tr(state.language, "inferenceRunning"));
     setOnnxProgress(`0/${project.images.length}`);
+    setOnnxProgressRatio(0);
     try {
       let totalBoxes = 0;
       for (const [index, image] of project.images.entries()) {
         setOnnxProgress(`${index + 1}/${project.images.length}`);
+        setOnnxProgressRatio(index / project.images.length);
         const boxes = await runOnnxDetection(
           state.onnxModelPath,
           image.fullPath,
@@ -187,6 +278,7 @@ export default function RightPanel() {
         );
         totalBoxes += boxes.length;
         setSuggestedBoxes(boxes, image.filename);
+        setOnnxProgressRatio((index + 1) / project.images.length);
       }
       setOnnxStatus(
         `${project.images.length} ${tr(state.language, "imagesProcessed")}, ${totalBoxes} ${tr(state.language, "suggestionsReady")}`,
@@ -197,7 +289,10 @@ export default function RightPanel() {
       );
     } finally {
       setIsRunningOnnx(false);
-      setOnnxProgress("");
+      window.setTimeout(() => {
+        setOnnxProgress("");
+        setOnnxProgressRatio(0);
+      }, 400);
     }
   }
 
@@ -508,6 +603,46 @@ export default function RightPanel() {
                 </div>
               </label>
               <label class="control-field">
+                <span>{tr(state.language, "presetModel")}</span>
+                <div class="inline-control">
+                  <select
+                    value={selectedPresetId()}
+                    onChange={(event) =>
+                      setSelectedPresetId(event.currentTarget.value)
+                    }
+                  >
+                    <For each={MODEL_PRESETS}>
+                      {(preset) => (
+                        <option value={preset.id}>
+                          {preset.group} / {preset.name}
+                        </option>
+                      )}
+                    </For>
+                  </select>
+                  <button
+                    class="panel-button"
+                    type="button"
+                    disabled={!selectedPreset() || isDownloadingPreset()}
+                    onClick={downloadSelectedPreset}
+                  >
+                    {isDownloadingPreset()
+                      ? tr(state.language, "downloading")
+                      : tr(state.language, "download")}
+                  </button>
+                </div>
+                <Show when={selectedPreset()?.note}>
+                  <span class="profile-name truncate">
+                    {selectedPreset()?.note}
+                  </span>
+                </Show>
+                <Show when={isDownloadingPreset()}>
+                  <ProgressBar
+                    value={downloadProgress()}
+                    label={downloadProgressText()}
+                  />
+                </Show>
+              </label>
+              <label class="control-field">
                 <span>{tr(state.language, "inputSize")}</span>
                 <input
                   type="number"
@@ -627,6 +762,12 @@ export default function RightPanel() {
                     <span class="muted"> {onnxProgress()}</span>
                   </Show>
                 </p>
+              </Show>
+              <Show when={isRunningOnnx() || onnxProgressRatio() > 0}>
+                <ProgressBar
+                  value={onnxProgressRatio()}
+                  label={onnxProgress()}
+                />
               </Show>
             </div>
           </section>
@@ -767,4 +908,26 @@ function profileNameFromPath(path: string) {
 
 function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function ProgressBar(props: { value: number; label?: string }) {
+  const percent = () =>
+    `${Math.round(Math.max(0, Math.min(1, props.value)) * 100)}%`;
+  return (
+    <div class="progress-row">
+      <div class="progress-track" aria-hidden="true">
+        <div class="progress-fill" style={{ width: percent() }} />
+      </div>
+      <span class="progress-label">{props.label || percent()}</span>
+    </div>
+  );
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  }
+  return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }

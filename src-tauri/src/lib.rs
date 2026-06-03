@@ -3,10 +3,11 @@ use serde_json::json;
 use std::{
     cmp::Ordering,
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, Window};
 use tract_onnx::prelude::*;
 use tract_onnx::tract_core::dims;
 
@@ -39,6 +40,15 @@ struct ImageEntry {
     annotated: bool,
     width: u32,
     height: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    id: String,
+    downloaded: u64,
+    total: Option<u64>,
+    done: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -158,6 +168,44 @@ fn read_text_file(path: String) -> Result<String, String> {
 #[tauri::command]
 fn write_text_file(path: String, content: String) -> Result<(), String> {
     atomic_write(PathBuf::from(path), content)
+}
+
+#[tauri::command]
+async fn download_model_file(
+    window: Window,
+    url: String,
+    destination_path: String,
+    progress_id: String,
+) -> Result<String, String> {
+    if !url.starts_with("https://github.com/CVHub520/X-AnyLabeling/releases/download/") {
+        return Err("unsupported model URL".to_string());
+    }
+
+    let mut response = reqwest::get(&url).await.map_err(|err| err.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("download failed: {}", response.status()));
+    }
+    let total = response.content_length();
+    let destination = PathBuf::from(destination_path);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+
+    let tmp_path = temp_path_for(&destination);
+    let mut file = fs::File::create(&tmp_path).map_err(|err| err.to_string())?;
+    let mut downloaded = 0u64;
+    emit_download_progress(&window, &progress_id, downloaded, total, false)?;
+
+    while let Some(chunk) = response.chunk().await.map_err(|err| err.to_string())? {
+        file.write_all(&chunk).map_err(|err| err.to_string())?;
+        downloaded += chunk.len() as u64;
+        emit_download_progress(&window, &progress_id, downloaded, total, false)?;
+    }
+    file.flush().map_err(|err| err.to_string())?;
+    fs::rename(&tmp_path, &destination).map_err(|err| err.to_string())?;
+    emit_download_progress(&window, &progress_id, downloaded, total, true)?;
+
+    Ok(destination.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -359,14 +407,42 @@ fn read_optional_string(path: &Path) -> Option<String> {
 }
 
 fn atomic_write(path: PathBuf, content: String) -> Result<(), String> {
-    let tmp_path = path.with_file_name(format!(
+    atomic_write_bytes(&path, content.as_bytes())
+}
+
+fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
+    let tmp_path = temp_path_for(path);
+    fs::write(&tmp_path, content).map_err(|err| err.to_string())?;
+    fs::rename(&tmp_path, path).map_err(|err| err.to_string())
+}
+
+fn temp_path_for(path: &Path) -> PathBuf {
+    path.with_file_name(format!(
         ".{}.tmp",
         path.file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("superlabel")
-    ));
-    fs::write(&tmp_path, content).map_err(|err| err.to_string())?;
-    fs::rename(&tmp_path, &path).map_err(|err| err.to_string())
+    ))
+}
+
+fn emit_download_progress(
+    window: &Window,
+    id: &str,
+    downloaded: u64,
+    total: Option<u64>,
+    done: bool,
+) -> Result<(), String> {
+    window
+        .emit(
+            "model-download-progress",
+            DownloadProgress {
+                id: id.to_string(),
+                downloaded,
+                total,
+                done,
+            },
+        )
+        .map_err(|err| err.to_string())
 }
 
 fn natural_cmp(left: &str, right: &str) -> Ordering {
@@ -871,6 +947,7 @@ pub fn run() {
             write_classes_file,
             read_text_file,
             write_text_file,
+            download_model_file,
             export_coco_file,
             run_onnx_detection,
         ])

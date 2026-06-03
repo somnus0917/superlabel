@@ -42,6 +42,18 @@ export async function pickModelProfileSavePath(
   return typeof selected === "string" ? selected : null;
 }
 
+export async function pickPresetModelSavePath(
+  title: string,
+  defaultPath: string,
+): Promise<string | null> {
+  const selected = await save({
+    title,
+    filters: [{ name: "ONNX", extensions: ["onnx"] }],
+    defaultPath,
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
 export async function readTextFile(path: string): Promise<string> {
   return invoke("read_text_file", { path });
 }
@@ -51,6 +63,14 @@ export async function writeTextFile(
   content: string,
 ): Promise<void> {
   await invoke("write_text_file", { path, content });
+}
+
+export async function downloadModelFile(
+  url: string,
+  destinationPath: string,
+  progressId: string,
+): Promise<string> {
+  return invoke("download_model_file", { url, destinationPath, progressId });
 }
 
 export async function loadImagesFromFolder(
