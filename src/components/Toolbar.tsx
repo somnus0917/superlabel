@@ -1,3 +1,4 @@
+import { Show } from "solid-js";
 import { state, setDrawMode, setShapeTool } from "../stores/app";
 import type { ShapeTool } from "../types";
 import { tr } from "../utils/i18n";
@@ -17,6 +18,8 @@ export default function Toolbar(props: Props) {
     if (!state.project || state.project.images.length === 0) return "0/0";
     return `${state.project.currentIndex + 1}/${state.project.images.length}`;
   };
+  const activeClass = () =>
+    state.project?.classes.find((item) => item.id === state.activeClassId);
 
   return (
     <header class="toolbar">
@@ -67,6 +70,15 @@ export default function Toolbar(props: Props) {
         <span aria-hidden="true">↖</span>
         <span>{tr(state.language, "select")}</span>
       </button>
+      <Show when={activeClass()}>
+        <div class="active-class-indicator" title={activeClass()!.name}>
+          <span
+            class="active-class-dot"
+            style={{ background: activeClass()!.color }}
+          />
+          <span class="active-class-name">{activeClass()!.name}</span>
+        </div>
+      </Show>
       <div class="toolbar-spacer" />
       <button
         class={`save-button ${state.dirty ? "dirty" : "saved"}`}

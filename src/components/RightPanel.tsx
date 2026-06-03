@@ -46,6 +46,7 @@ import {
   runOnnxDetection,
   writeTextFile,
 } from "../utils/fs";
+import { generateDataYaml } from "../utils/dataYaml";
 import { tr } from "../utils/i18n";
 import { MODEL_PRESETS } from "../utils/modelPresets";
 
@@ -86,7 +87,9 @@ export default function RightPanel() {
   );
   const [isLoadingStats, setIsLoadingStats] = createSignal(false);
   const [statsError, setStatsError] = createSignal("");
+  const [dataYamlStatus, setDataYamlStatus] = createSignal("");
   let statsRequestId = 0;
+  let dataYamlStatusTimer = 0;
 
   createEffect(() => {
     if (state.rightPanelTab !== "stats") return;
@@ -113,7 +116,10 @@ export default function RightPanel() {
       .map((item) => `${item.id}:${item.name}:${item.color}`)
       .join("|");
     currentBoxes
-      .map((box) => `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`)
+      .map(
+        (box) =>
+          `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`,
+      )
       .join("|");
 
     void refreshProjectStats(currentImage?.filename ?? "", currentBoxes);
@@ -218,6 +224,19 @@ export default function RightPanel() {
     const profile = currentModelProfile(profilePath);
     await writeTextFile(profilePath, `${JSON.stringify(profile, null, 2)}\n`);
     setOnnxStatus(`${tr(state.language, "profileSaved")}: ${profile.name}`);
+  }
+
+  async function generateDataYamlFile() {
+    const project = state.project;
+    if (!project) return;
+
+    const content = generateDataYaml(project.imageFolderPath, project.classes);
+    await writeTextFile(`${project.labelFolderPath}/data.yaml`, `${content}\n`);
+    window.clearTimeout(dataYamlStatusTimer);
+    setDataYamlStatus("✓ data.yaml saved");
+    dataYamlStatusTimer = window.setTimeout(() => {
+      setDataYamlStatus("");
+    }, 1800);
   }
 
   function modelName() {
@@ -659,7 +678,9 @@ export default function RightPanel() {
             </header>
             <Show
               when={state.project}
-              fallback={<p class="empty-hint">{tr(state.language, "noImages")}</p>}
+              fallback={
+                <p class="empty-hint">{tr(state.language, "noImages")}</p>
+              }
             >
               <Show
                 when={!statsError()}
@@ -671,7 +692,11 @@ export default function RightPanel() {
               >
                 <Show
                   when={projectStats()}
-                  fallback={<p class="empty-hint">{tr(state.language, "statsLoading")}</p>}
+                  fallback={
+                    <p class="empty-hint">
+                      {tr(state.language, "statsLoading")}
+                    </p>
+                  }
                 >
                   {(stats) => (
                     <div class="stats-panel">
@@ -690,11 +715,15 @@ export default function RightPanel() {
                         />
                         <StatCard
                           label={tr(state.language, "estimatedRemaining")}
-                          value={formatMinutes(stats().estimatedRemainingMinutes)}
+                          value={formatMinutes(
+                            stats().estimatedRemainingMinutes,
+                          )}
                         />
                       </div>
 
-                      <StatsBlock title={tr(state.language, "classDistribution")}>
+                      <StatsBlock
+                        title={tr(state.language, "classDistribution")}
+                      >
                         <Show
                           when={stats().classCounts.length > 0}
                           fallback={
@@ -739,7 +768,9 @@ export default function RightPanel() {
                         </div>
                       </StatsBlock>
 
-                      <StatsBlock title={tr(state.language, "aspectRatioDistribution")}>
+                      <StatsBlock
+                        title={tr(state.language, "aspectRatioDistribution")}
+                      >
                         <Show
                           when={stats().totalBoxes > 0}
                           fallback={
@@ -985,9 +1016,7 @@ export default function RightPanel() {
                 <ProgressBar
                   value={onnxProgressRatio()}
                   label={onnxProgress()}
-                  indeterminate={
-                    isRunningOnnx() && onnxRunMode() === "current"
-                  }
+                  indeterminate={isRunningOnnx() && onnxRunMode() === "current"}
                 />
               </Show>
             </div>
@@ -1041,6 +1070,17 @@ export default function RightPanel() {
                   <span class="switch-thumb" />
                 </span>
               </label>
+              <button
+                class="panel-button primary"
+                type="button"
+                disabled={!state.project}
+                onClick={generateDataYamlFile}
+              >
+                Generate data.yaml
+              </button>
+              <Show when={dataYamlStatus()}>
+                <p class="empty-hint compact">{dataYamlStatus()}</p>
+              </Show>
             </div>
 
             <section class="shortcut-panel">

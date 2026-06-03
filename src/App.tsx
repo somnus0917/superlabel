@@ -15,6 +15,7 @@ import {
   goToImage,
   markSaved,
   openProject,
+  setActiveClass,
   setAutoSave,
   setCurrentBoxes,
   setCurrentShapes,
@@ -145,10 +146,13 @@ export default function App() {
     const rememberedIndex = currentImageFilename
       ? images.findIndex((image) => image.filename === currentImageFilename)
       : -1;
+    const firstUnannotated = images.findIndex((image) => !image.annotated);
     const currentIndex =
       rememberedIndex >= 0
         ? rememberedIndex
-        : Math.max(0, Math.min(fallbackIndex, images.length - 1));
+        : firstUnannotated >= 0
+          ? firstUnannotated
+          : Math.max(0, Math.min(fallbackIndex, images.length - 1));
     openProject({
       imageFolderPath,
       labelFolderPath,
@@ -179,11 +183,31 @@ export default function App() {
     }
   }
 
-  function handleRemoveWorkspace(id: string) {
-    setRecentWorkspaces(removeWorkspace(id));
+  async function handleRemoveWorkspace(id: string) {
+    setRecentWorkspaces(await removeWorkspace(id));
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    const target = event.target as HTMLElement;
+    const isInput =
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable;
+
+    if (!isInput && /^[1-9]$/.test(event.key)) {
+      const classIndex = Number(event.key) - 1;
+      const classes = state.project?.classes;
+      if (classes && classIndex < classes.length) {
+        setActiveClass(classes[classIndex].id);
+      }
+    }
+    if (!isInput && event.key === "0") {
+      const classes = state.project?.classes;
+      if (classes && classes.length >= 10) {
+        setActiveClass(classes[9].id);
+      }
+    }
+
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       void handlePrev();
@@ -199,7 +223,9 @@ export default function App() {
   }
 
   onMount(() => {
-    setRecentWorkspaces(readWorkspaces());
+    void (async () => {
+      setRecentWorkspaces(await readWorkspaces());
+    })();
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       setCanvasSize({ width, height });
@@ -250,41 +276,27 @@ export default function App() {
     currentImage?.filename;
 
     if (!project || currentIndex === undefined) return;
-    setRecentWorkspaces(
-      rememberWorkspace({
-        project,
-        autoSave: state.autoSave,
-        outputFormat: state.outputFormat,
-        language: state.language,
-      }),
-    );
+    void (async () => {
+      setRecentWorkspaces(
+        await rememberWorkspace({
+          project,
+          autoSave: state.autoSave,
+          outputFormat: state.outputFormat,
+          language: state.language,
+        }),
+      );
+    })();
   });
 
   createEffect(() => {
+    if (!state.autoSave || !state.dirty) return;
     const project = state.project;
     const image = project?.images[project.currentIndex];
-    const boxesSignature = state.currentBoxes
-      .map(
-        (box) =>
-          `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`,
-      )
-      .join("|");
-    const shapesSignature = state.currentShapes
-      .map(
-        (shape) =>
-          `${shape.id}:${shape.kind}:${shape.classId}:${shape.points.map((point) => `${point.x}:${point.y}`).join(",")}`,
-      )
-      .join("|");
-    const classesSignature = project?.classes
-      .map((item) => `${item.id}:${item.name}`)
-      .join("|");
-    state.autoSave;
-    state.dirty;
-    boxesSignature;
-    shapesSignature;
-    classesSignature;
+    if (!project || !image) return;
 
-    if (!state.autoSave || !state.dirty || !project || !image) return;
+    state.currentBoxes.length;
+    state.currentShapes.length;
+    project.classes.length;
 
     const saveTimer = window.setTimeout(() => {
       void handleSave();

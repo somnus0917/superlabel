@@ -1,3 +1,4 @@
+import { load } from "@tauri-apps/plugin-store";
 import type {
   Language,
   OutputFormat,
@@ -5,7 +6,8 @@ import type {
   ProjectWorkspace,
 } from "../types";
 
-const WORKSPACES_KEY = "superlabel.workspaces.v1";
+const WORKSPACES_STORE = "superlabel-workspaces.json";
+const WORKSPACES_KEY = "workspaces";
 const MAX_WORKSPACES = 12;
 
 interface WorkspaceInput {
@@ -15,11 +17,10 @@ interface WorkspaceInput {
   language: Language;
 }
 
-export function readWorkspaces(): ProjectWorkspace[] {
+export async function readWorkspaces(): Promise<ProjectWorkspace[]> {
   try {
-    const raw = window.localStorage.getItem(WORKSPACES_KEY);
-    if (!raw) return [];
-    const value = JSON.parse(raw);
+    const store = await load(WORKSPACES_STORE);
+    const value = await store.get(WORKSPACES_KEY);
     if (!Array.isArray(value)) return [];
     return value
       .flatMap((item) => {
@@ -32,10 +33,15 @@ export function readWorkspaces(): ProjectWorkspace[] {
   }
 }
 
-export function rememberWorkspace(input: WorkspaceInput): ProjectWorkspace[] {
+export async function rememberWorkspace(
+  input: WorkspaceInput,
+): Promise<ProjectWorkspace[]> {
   const currentImage = input.project.images[input.project.currentIndex];
   const workspace: ProjectWorkspace = {
-    id: workspaceId(input.project.imageFolderPath, input.project.labelFolderPath),
+    id: workspaceId(
+      input.project.imageFolderPath,
+      input.project.labelFolderPath,
+    ),
     name: workspaceNameFromPath(input.project.imageFolderPath),
     imageFolderPath: input.project.imageFolderPath,
     labelFolderPath: input.project.labelFolderPath,
@@ -48,15 +54,17 @@ export function rememberWorkspace(input: WorkspaceInput): ProjectWorkspace[] {
   };
   const nextWorkspaces = [
     workspace,
-    ...readWorkspaces().filter((item) => item.id !== workspace.id),
+    ...(await readWorkspaces()).filter((item) => item.id !== workspace.id),
   ].slice(0, MAX_WORKSPACES);
-  writeWorkspaces(nextWorkspaces);
+  await writeWorkspaces(nextWorkspaces);
   return nextWorkspaces;
 }
 
-export function removeWorkspace(id: string): ProjectWorkspace[] {
-  const nextWorkspaces = readWorkspaces().filter((item) => item.id !== id);
-  writeWorkspaces(nextWorkspaces);
+export async function removeWorkspace(id: string): Promise<ProjectWorkspace[]> {
+  const nextWorkspaces = (await readWorkspaces()).filter(
+    (item) => item.id !== id,
+  );
+  await writeWorkspaces(nextWorkspaces);
   return nextWorkspaces;
 }
 
@@ -64,8 +72,10 @@ export function workspaceNameFromPath(path: string) {
   return path.split(/[\\/]/).filter(Boolean).pop() || "workspace";
 }
 
-function writeWorkspaces(workspaces: ProjectWorkspace[]) {
-  window.localStorage.setItem(WORKSPACES_KEY, JSON.stringify(workspaces));
+async function writeWorkspaces(workspaces: ProjectWorkspace[]) {
+  const store = await load(WORKSPACES_STORE);
+  await store.set(WORKSPACES_KEY, workspaces);
+  await store.save();
 }
 
 function workspaceId(imageFolderPath: string, labelFolderPath: string) {
@@ -96,7 +106,8 @@ function normalizeWorkspace(value: unknown): ProjectWorkspace | null {
         ? item.currentImageFilename
         : undefined,
     currentIndex:
-      typeof item.currentIndex === "number" && Number.isFinite(item.currentIndex)
+      typeof item.currentIndex === "number" &&
+      Number.isFinite(item.currentIndex)
         ? Math.max(0, Math.round(item.currentIndex))
         : 0,
     updatedAt:
