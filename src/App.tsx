@@ -1,5 +1,12 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import AnnotationCanvas from "./components/AnnotationCanvas";
 import ImageList from "./components/ImageList";
 import RightPanel from "./components/RightPanel";
@@ -8,8 +15,11 @@ import {
   goToImage,
   markSaved,
   openProject,
+  setAutoSave,
   setCurrentBoxes,
   setCurrentShapes,
+  setLanguage,
+  setOutputFormat,
   state,
 } from "./stores/app";
 import { parseShapes, serializeShapes } from "./utils/shapes";
@@ -31,10 +41,21 @@ import {
   writeShapesFile,
 } from "./utils/fs";
 import { tr } from "./utils/i18n";
+import type { ProjectWorkspace } from "./types";
+import {
+  readWorkspaces,
+  rememberWorkspace,
+  removeWorkspace,
+} from "./utils/workspaces";
 
 export default function App() {
   let canvasWrapperRef: HTMLDivElement | undefined;
   const [canvasSize, setCanvasSize] = createSignal({ width: 0, height: 0 });
+  const [recentWorkspaces, setRecentWorkspaces] = createSignal<
+    ProjectWorkspace[]
+  >([]);
+  const [openingWorkspaceId, setOpeningWorkspaceId] = createSignal("");
+  const [workspaceError, setWorkspaceError] = createSignal("");
 
   const currentImage = () => state.project?.images[state.project.currentIndex];
   const currentImageSrc = () => {
@@ -108,17 +129,58 @@ export default function App() {
       tr(state.language, "dialogOpenLabelFolder"),
     );
     if (!labelFolderPath) return;
+    await openProjectFromFolders(imageFolderPath, labelFolderPath);
+  }
+
+  async function openProjectFromFolders(
+    imageFolderPath: string,
+    labelFolderPath: string,
+    currentImageFilename?: string,
+    fallbackIndex = 0,
+  ) {
     const [images, classesText] = await Promise.all([
       loadImagesFromFolder(imageFolderPath, labelFolderPath),
       readClassesFile(labelFolderPath),
     ]);
+    const rememberedIndex = currentImageFilename
+      ? images.findIndex((image) => image.filename === currentImageFilename)
+      : -1;
+    const currentIndex =
+      rememberedIndex >= 0
+        ? rememberedIndex
+        : Math.max(0, Math.min(fallbackIndex, images.length - 1));
     openProject({
       imageFolderPath,
       labelFolderPath,
       images,
-      currentIndex: 0,
+      currentIndex,
       classes: parseClasses(classesText),
     });
+  }
+
+  async function handleOpenWorkspace(workspace: ProjectWorkspace) {
+    await saveIfDirty();
+    setOpeningWorkspaceId(workspace.id);
+    setWorkspaceError("");
+    try {
+      setAutoSave(workspace.autoSave);
+      setOutputFormat(workspace.outputFormat);
+      setLanguage(workspace.language);
+      await openProjectFromFolders(
+        workspace.imageFolderPath,
+        workspace.labelFolderPath,
+        workspace.currentImageFilename,
+        workspace.currentIndex,
+      );
+    } catch (error) {
+      setWorkspaceError(String(error));
+    } finally {
+      setOpeningWorkspaceId("");
+    }
+  }
+
+  function handleRemoveWorkspace(id: string) {
+    setRecentWorkspaces(removeWorkspace(id));
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -137,6 +199,7 @@ export default function App() {
   }
 
   onMount(() => {
+    setRecentWorkspaces(readWorkspaces());
     const observer = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
       setCanvasSize({ width, height });
@@ -175,6 +238,26 @@ export default function App() {
         setCurrentShapes(parseShapes(shapesText));
       }
     })();
+  });
+
+  createEffect(() => {
+    const project = state.project;
+    const currentIndex = project?.currentIndex;
+    const currentImage = project?.images[currentIndex ?? 0];
+    state.autoSave;
+    state.outputFormat;
+    state.language;
+    currentImage?.filename;
+
+    if (!project || currentIndex === undefined) return;
+    setRecentWorkspaces(
+      rememberWorkspace({
+        project,
+        autoSave: state.autoSave,
+        outputFormat: state.outputFormat,
+        language: state.language,
+      }),
+    );
   });
 
   createEffect(() => {
@@ -225,7 +308,16 @@ export default function App() {
         <section ref={canvasWrapperRef} class="canvas-shell">
           <Show
             when={state.project && currentImageSrc()}
-            fallback={<EmptyState onOpenFolder={handleOpenFolder} />}
+            fallback={
+              <EmptyState
+                onOpenFolder={handleOpenFolder}
+                recentWorkspaces={recentWorkspaces()}
+                openingWorkspaceId={openingWorkspaceId()}
+                workspaceError={workspaceError()}
+                onOpenWorkspace={handleOpenWorkspace}
+                onRemoveWorkspace={handleRemoveWorkspace}
+              />
+            }
           >
             <AnnotationCanvas
               imageSrc={currentImageSrc()}
@@ -240,16 +332,78 @@ export default function App() {
   );
 }
 
-function EmptyState(props: { onOpenFolder: () => void }) {
+function EmptyState(props: {
+  onOpenFolder: () => void;
+  recentWorkspaces: ProjectWorkspace[];
+  openingWorkspaceId: string;
+  workspaceError: string;
+  onOpenWorkspace: (workspace: ProjectWorkspace) => void;
+  onRemoveWorkspace: (id: string) => void;
+}) {
   return (
     <div class="empty-state">
-      <div>
+      <div class="empty-state-content">
         <h1>superlabel</h1>
         <p>{tr(state.language, "emptyDescription")}</p>
         <button type="button" onClick={props.onOpenFolder}>
           {tr(state.language, "openFolders")}
         </button>
+        <Show when={props.workspaceError}>
+          <p class="workspace-error">
+            {tr(state.language, "workspaceOpenFailed")}: {props.workspaceError}
+          </p>
+        </Show>
+        <Show when={props.recentWorkspaces.length > 0}>
+          <section class="recent-workspaces">
+            <header>{tr(state.language, "recentWorkspaces")}</header>
+            <div class="workspace-list">
+              <For each={props.recentWorkspaces}>
+                {(workspace) => (
+                  <div class="workspace-row">
+                    <button
+                      type="button"
+                      class="workspace-open"
+                      disabled={Boolean(props.openingWorkspaceId)}
+                      onClick={() => props.onOpenWorkspace(workspace)}
+                    >
+                      <span class="workspace-title">
+                        {workspace.name}
+                        <Show when={props.openingWorkspaceId === workspace.id}>
+                          <span class="muted">
+                            {" "}
+                            {tr(state.language, "openingWorkspace")}
+                          </span>
+                        </Show>
+                      </span>
+                      <span class="workspace-path truncate">
+                        {workspace.imageFolderPath}
+                      </span>
+                      <span class="workspace-meta">
+                        {workspace.currentImageFilename ??
+                          tr(state.language, "noImageSelected")}{" "}
+                        · {formatWorkspaceTime(workspace.updatedAt)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="workspace-remove"
+                      title={tr(state.language, "removeWorkspace")}
+                      onClick={() => props.onRemoveWorkspace(workspace.id)}
+                    >
+                      x
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </section>
+        </Show>
       </div>
     </div>
   );
+}
+
+function formatWorkspaceTime(value: number) {
+  if (!value) return "";
+  return new Date(value).toLocaleString();
 }

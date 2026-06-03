@@ -404,6 +404,10 @@ button:disabled {
   color: var(--text-secondary);
 }
 
+.empty-state-content {
+  width: min(560px, calc(100% - 32px));
+}
+
 .empty-state h1 {
   color: var(--text-primary);
   font-size: 28px;
@@ -422,6 +426,85 @@ button:disabled {
   border: 1px solid #4a7aaa;
   background: #2a3a4a;
   color: #88ccff;
+}
+
+.recent-workspaces {
+  margin-top: 22px;
+  text-align: left;
+}
+
+.recent-workspaces header {
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workspace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspace-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.empty-state .workspace-open {
+  min-width: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #171717;
+  color: var(--text-secondary);
+}
+
+.empty-state .workspace-open:hover {
+  border-color: #4a7aaa;
+  background: #1f2630;
+}
+
+.workspace-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.workspace-path,
+.workspace-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.empty-state .workspace-remove {
+  width: 28px;
+  height: auto;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #171717;
+  color: var(--text-muted);
+}
+
+.empty-state .workspace-remove:hover {
+  background: #3a2424;
+  color: #ff8888;
+}
+
+.workspace-error {
+  margin: 12px 0 0;
+  color: #ff8888;
+  font-size: 13px;
 }
 
 .right-section {

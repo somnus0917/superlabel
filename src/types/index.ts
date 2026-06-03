@@ -41,6 +41,19 @@ export interface ProjectState {
   classes: AnnotationClass[];
 }
 
+export interface ProjectWorkspace {
+  id: string;
+  name: string;
+  imageFolderPath: string;
+  labelFolderPath: string;
+  currentImageFilename?: string;
+  currentIndex: number;
+  updatedAt: number;
+  autoSave: boolean;
+  outputFormat: OutputFormat;
+  language: Language;
+}
+
 export interface ClassSampleStats {
   classId: number;
   name: string;
