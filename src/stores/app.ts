@@ -1,5 +1,6 @@
 import { createStore, produce } from "solid-js/store";
 import type {
+  AnnotationShape,
   BBox,
   DrawMode,
   Language,
@@ -7,19 +8,23 @@ import type {
   OutputFormat,
   ProjectState,
   RightPanelTab,
+  ShapeTool,
 } from "../types";
 import { DEFAULT_COLORS } from "../utils/yolo";
 
 interface AppStore {
   project: ProjectState | null;
   currentBoxes: BBox[];
+  currentShapes: AnnotationShape[];
   suggestedBoxes: BBox[];
   suggestedBoxesByImage: Record<string, BBox[]>;
   undoStack: BoxesHistorySnapshot[];
   redoStack: BoxesHistorySnapshot[];
   selectedBoxId: string | null;
+  selectedShapeId: string | null;
   activeClassId: number;
   drawMode: DrawMode;
+  shapeTool: ShapeTool;
   autoSave: boolean;
   language: Language;
   outputFormat: OutputFormat;
@@ -36,7 +41,9 @@ interface AppStore {
 
 interface BoxesHistorySnapshot {
   boxes: BBox[];
+  shapes: AnnotationShape[];
   selectedBoxId: string | null;
+  selectedShapeId: string | null;
 }
 
 const MAX_HISTORY = 100;
@@ -44,13 +51,16 @@ const MAX_HISTORY = 100;
 const initialState: AppStore = {
   project: null,
   currentBoxes: [],
+  currentShapes: [],
   suggestedBoxes: [],
   suggestedBoxesByImage: {},
   undoStack: [],
   redoStack: [],
   selectedBoxId: null,
+  selectedShapeId: null,
   activeClassId: 0,
   drawMode: "draw",
+  shapeTool: "rect",
   autoSave: false,
   language: "en",
   outputFormat: "yolo",
@@ -77,13 +87,16 @@ export function openProject(project: ProjectState) {
       ),
     },
     currentBoxes: [],
+    currentShapes: [],
     suggestedBoxes: [],
     suggestedBoxesByImage: {},
     undoStack: [],
     redoStack: [],
     selectedBoxId: null,
+    selectedShapeId: null,
     activeClassId: project.classes[0]?.id ?? 0,
     drawMode: "draw",
+    shapeTool: "rect",
     dirty: false,
   });
 }
@@ -97,6 +110,17 @@ export function setCurrentBoxes(boxes: BBox[], imageFilename?: string) {
     undoStack: [],
     redoStack: [],
     selectedBoxId: null,
+    selectedShapeId: null,
+    dirty: false,
+  });
+}
+
+export function setCurrentShapes(shapes: AnnotationShape[]) {
+  setState({
+    currentShapes: shapes,
+    undoStack: [],
+    redoStack: [],
+    selectedShapeId: null,
     dirty: false,
   });
 }
@@ -112,12 +136,14 @@ export function goToImage(index: number) {
       if (!draft.project) return;
       draft.project.currentIndex = nextIndex;
       draft.currentBoxes = [];
+      draft.currentShapes = [];
       const image = draft.project.images[nextIndex];
       draft.suggestedBoxes = image
         ? (draft.suggestedBoxesByImage[image.filename] ?? [])
         : [];
       clearBoxesHistory(draft);
       draft.selectedBoxId = null;
+      draft.selectedShapeId = null;
       draft.dirty = false;
     }),
   );
@@ -129,6 +155,19 @@ export function addBox(box: BBox) {
       pushUndoSnapshot(draft);
       draft.currentBoxes.push(box);
       draft.selectedBoxId = box.id;
+      draft.selectedShapeId = null;
+      draft.dirty = true;
+    }),
+  );
+}
+
+export function addShape(shape: AnnotationShape) {
+  setState(
+    produce((draft) => {
+      pushUndoSnapshot(draft);
+      draft.currentShapes.push(shape);
+      draft.selectedBoxId = null;
+      draft.selectedShapeId = shape.id;
       draft.dirty = true;
     }),
   );
@@ -205,6 +244,19 @@ export function updateBox(id: string, patch: Partial<BBox>) {
   );
 }
 
+export function updateShape(id: string, patch: Partial<AnnotationShape>) {
+  setState(
+    produce((draft) => {
+      const shape = draft.currentShapes.find((item) => item.id === id);
+      if (!shape) return;
+      if (!shapeChanged(shape, patch)) return;
+      pushUndoSnapshot(draft);
+      Object.assign(shape, patch);
+      draft.dirty = true;
+    }),
+  );
+}
+
 export function deleteBox(id: string) {
   setState(
     produce((draft) => {
@@ -219,8 +271,34 @@ export function deleteBox(id: string) {
   );
 }
 
+export function deleteShape(id: string) {
+  setState(
+    produce((draft) => {
+      if (!draft.currentShapes.some((item) => item.id === id)) return;
+      pushUndoSnapshot(draft);
+      draft.currentShapes = draft.currentShapes.filter(
+        (item) => item.id !== id,
+      );
+      if (draft.selectedShapeId === id) {
+        draft.selectedShapeId = null;
+      }
+      draft.dirty = true;
+    }),
+  );
+}
+
 export function selectBox(id: string | null) {
-  setState("selectedBoxId", id);
+  setState({
+    selectedBoxId: id,
+    selectedShapeId: null,
+  });
+}
+
+export function selectShape(id: string | null) {
+  setState({
+    selectedBoxId: null,
+    selectedShapeId: id,
+  });
 }
 
 export function undoBoxes() {
@@ -230,7 +308,9 @@ export function undoBoxes() {
       if (!snapshot) return;
       draft.redoStack.push(createBoxesSnapshot(draft));
       draft.currentBoxes = cloneBoxes(snapshot.boxes);
+      draft.currentShapes = cloneShapes(snapshot.shapes);
       draft.selectedBoxId = snapshot.selectedBoxId;
+      draft.selectedShapeId = snapshot.selectedShapeId;
       draft.dirty = true;
     }),
   );
@@ -243,7 +323,9 @@ export function redoBoxes() {
       if (!snapshot) return;
       draft.undoStack.push(createBoxesSnapshot(draft));
       draft.currentBoxes = cloneBoxes(snapshot.boxes);
+      draft.currentShapes = cloneShapes(snapshot.shapes);
       draft.selectedBoxId = snapshot.selectedBoxId;
+      draft.selectedShapeId = snapshot.selectedShapeId;
       draft.dirty = true;
     }),
   );
@@ -288,6 +370,13 @@ export function setActiveClass(id: number) {
 
 export function setDrawMode(mode: DrawMode) {
   setState("drawMode", mode);
+}
+
+export function setShapeTool(tool: ShapeTool) {
+  setState({
+    shapeTool: tool,
+    drawMode: "draw",
+  });
 }
 
 export function setAutoSave(enabled: boolean) {
@@ -365,7 +454,8 @@ export function markSaved(filename: string) {
           (item) => item.filename === filename,
         );
         if (image) {
-          image.annotated = draft.currentBoxes.length > 0;
+          image.annotated =
+            draft.currentBoxes.length > 0 || draft.currentShapes.length > 0;
         }
       }
       draft.dirty = false;
@@ -390,16 +480,28 @@ function pushUndoSnapshot(draft: AppStore) {
 }
 
 function createBoxesSnapshot(
-  stateLike: Pick<AppStore, "currentBoxes" | "selectedBoxId">,
+  stateLike: Pick<
+    AppStore,
+    "currentBoxes" | "currentShapes" | "selectedBoxId" | "selectedShapeId"
+  >,
 ) {
   return {
     boxes: cloneBoxes(stateLike.currentBoxes),
+    shapes: cloneShapes(stateLike.currentShapes),
     selectedBoxId: stateLike.selectedBoxId,
+    selectedShapeId: stateLike.selectedShapeId,
   };
 }
 
 function cloneBoxes(boxes: BBox[]) {
   return boxes.map((box) => ({ ...box }));
+}
+
+function cloneShapes(shapes: AnnotationShape[]) {
+  return shapes.map((shape) => ({
+    ...shape,
+    points: shape.points.map((point) => ({ ...point })),
+  }));
 }
 
 function clearBoxesHistory(draft: AppStore) {
@@ -410,6 +512,12 @@ function clearBoxesHistory(draft: AppStore) {
 function boxChanged(box: BBox, patch: Partial<BBox>) {
   return Object.entries(patch).some(
     ([key, value]) => box[key as keyof BBox] !== value,
+  );
+}
+
+function shapeChanged(shape: AnnotationShape, patch: Partial<AnnotationShape>) {
+  return Object.entries(patch).some(
+    ([key, value]) => shape[key as keyof AnnotationShape] !== value,
   );
 }
 

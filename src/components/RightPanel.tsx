@@ -5,8 +5,10 @@ import {
   applyModelProfile,
   clearSuggestedBoxes,
   deleteBox,
+  deleteShape,
   renameClass,
   selectBox,
+  selectShape,
   setActiveClass,
   setAutoSave,
   setLanguage,
@@ -21,12 +23,14 @@ import {
   setSuggestedBoxes,
   state,
   updateBox,
+  updateShape,
 } from "../stores/app";
 import type {
   Language,
   ModelProfile,
   OutputFormat,
   RightPanelTab,
+  ShapeTool,
 } from "../types";
 import {
   pickModelProfile,
@@ -204,6 +208,14 @@ export default function RightPanel() {
     return tr(state.language, "export");
   }
 
+  function shapeLabel(kind: ShapeTool) {
+    if (kind === "polygon") return tr(state.language, "shapePolygon");
+    if (kind === "point") return tr(state.language, "shapePoint");
+    if (kind === "circle") return tr(state.language, "shapeCircle");
+    if (kind === "line") return tr(state.language, "shapeLine");
+    return tr(state.language, "shapeRect");
+  }
+
   function acceptSuggestions() {
     const count = state.suggestedBoxes.length;
     if (count === 0) return;
@@ -219,6 +231,11 @@ export default function RightPanel() {
   function changeBoxClass(boxId: string, classId: number) {
     selectBox(boxId);
     updateBox(boxId, { classId });
+  }
+
+  function changeShapeClass(shapeId: string, classId: number) {
+    selectShape(shapeId);
+    updateShape(shapeId, { classId });
   }
 
   return (
@@ -312,11 +329,15 @@ export default function RightPanel() {
           <section class="right-tab-content">
             <header class="panel-header">
               <span>{tr(state.language, "annotations")}</span>
-              <span class="badge">{state.currentBoxes.length}</span>
+              <span class="badge">
+                {state.currentBoxes.length + state.currentShapes.length}
+              </span>
             </header>
             <div class="annotation-list">
               <Show
-                when={state.currentBoxes.length > 0}
+                when={
+                  state.currentBoxes.length + state.currentShapes.length > 0
+                }
                 fallback={
                   <p class="empty-hint">
                     {tr(state.language, "noAnnotations")}
@@ -370,6 +391,63 @@ export default function RightPanel() {
                           onClick={(event) => {
                             event.stopPropagation();
                             deleteBox(box.id);
+                          }}
+                        >
+                          x
+                        </span>
+                      </div>
+                    );
+                  }}
+                </For>
+                <For each={state.currentShapes}>
+                  {(shape) => {
+                    const item = () => classForId(shape.classId);
+                    return (
+                      <div
+                        class={`annotation-row ${state.selectedShapeId === shape.id ? "active" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => selectShape(shape.id)}
+                      >
+                        <span
+                          class="swatch"
+                          style={{
+                            "background-color": item()?.color ?? "#4a9eff",
+                          }}
+                        />
+                        <span class="shape-kind">{shapeLabel(shape.kind)}</span>
+                        <select
+                          class="annotation-class-select"
+                          value={shape.classId}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) =>
+                            changeShapeClass(
+                              shape.id,
+                              Number(event.currentTarget.value),
+                            )
+                          }
+                        >
+                          <For each={state.project?.classes ?? []}>
+                            {(annotationClass) => (
+                              <option value={annotationClass.id}>
+                                #{annotationClass.id} {annotationClass.name}
+                              </option>
+                            )}
+                          </For>
+                          <Show when={!item()}>
+                            <option value={shape.classId}>
+                              {tr(state.language, "classPrefix")} #
+                              {shape.classId}
+                            </option>
+                          </Show>
+                        </select>
+                        <span
+                          class="delete-button"
+                          role="button"
+                          tabIndex={0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteShape(shape.id);
                           }}
                         >
                           x

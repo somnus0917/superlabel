@@ -620,6 +620,16 @@ button:disabled {
   font-size: 12px;
 }
 
+.shape-kind {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #171717;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .delete-button:hover {
   background: #3a2424;
   color: #ff8888;

@@ -2,9 +2,12 @@ import Konva from "konva";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import {
   addBox,
+  addShape,
   deleteBox,
+  deleteShape,
   redoBoxes,
   selectBox,
+  selectShape,
   setDrawMode,
   state,
   undoBoxes,
@@ -43,11 +46,18 @@ interface Viewport {
   y: number;
 }
 
+interface SnapResult {
+  point: { x: number; y: number };
+  snapped: boolean;
+  currentFirstVertex: boolean;
+}
+
 const HANDLE_SIZE = 8;
 const MIN_BOX_SIZE = 8;
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
 const ZOOM_STEP = 1.12;
+const SNAP_THRESHOLD = 10;
 const RESIZE_HANDLES: ResizeHandleConfig[] = [
   {
     id: "top-left",
@@ -96,6 +106,11 @@ export default function AnnotationCanvas(props: Props) {
   let viewport: Viewport = { scale: 1, x: 0, y: 0 };
   let drawingStart: { x: number; y: number } | null = null;
   let tempRect: Konva.Rect | null = null;
+  let tempLine: Konva.Line | null = null;
+  let tempCircle: Konva.Circle | null = null;
+  let polygonPoints: Array<{ x: number; y: number }> = [];
+  let tempPolygon: Konva.Line | null = null;
+  let tempSnapPoint: Konva.Circle | null = null;
 
   function transformedLayers() {
     return [imageLayer, annotationLayer, drawingLayer].filter(
@@ -186,6 +201,280 @@ export default function AnnotationCanvas(props: Props) {
     return state.project?.classes.find((item) => item.id === classId);
   }
 
+  function normalizedToCanvas(point: { x: number; y: number }) {
+    return {
+      x: metrics!.offsetX + point.x * metrics!.imgW,
+      y: metrics!.offsetY + point.y * metrics!.imgH,
+    };
+  }
+
+  function imagePointToNormalized(point: { x: number; y: number }) {
+    return {
+      x: Math.max(0, Math.min(1, point.x / metrics!.imgW)),
+      y: Math.max(0, Math.min(1, point.y / metrics!.imgH)),
+    };
+  }
+
+  function normalizedToImage(point: { x: number; y: number }) {
+    return {
+      x: point.x * metrics!.imgW,
+      y: point.y * metrics!.imgH,
+    };
+  }
+
+  function snapThreshold() {
+    return SNAP_THRESHOLD / viewport.scale;
+  }
+
+  function distance(
+    left: { x: number; y: number },
+    right: { x: number; y: number },
+  ) {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function projectPointToSegment(
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+  ) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return start;
+    const t = Math.max(
+      0,
+      Math.min(
+        1,
+        ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared,
+      ),
+    );
+    return {
+      x: start.x + t * dx,
+      y: start.y + t * dy,
+    };
+  }
+
+  function addSnapSegments(
+    segments: Array<[{ x: number; y: number }, { x: number; y: number }]>,
+    points: Array<{ x: number; y: number }>,
+    closed = false,
+  ) {
+    for (let index = 0; index < points.length - 1; index += 1) {
+      segments.push([points[index], points[index + 1]]);
+    }
+    if (closed && points.length > 2) {
+      segments.push([points[points.length - 1], points[0]]);
+    }
+  }
+
+  function rectangleSnapPoints(box: (typeof state.currentBoxes)[number]) {
+    const pixel = yoloToPixel(
+      box.cx,
+      box.cy,
+      box.w,
+      box.h,
+      metrics!.imgW,
+      metrics!.imgH,
+    );
+    const topLeft = { x: pixel.x, y: pixel.y };
+    const topRight = { x: pixel.x + pixel.width, y: pixel.y };
+    const bottomRight = {
+      x: pixel.x + pixel.width,
+      y: pixel.y + pixel.height,
+    };
+    const bottomLeft = { x: pixel.x, y: pixel.y + pixel.height };
+    return [topLeft, topRight, bottomRight, bottomLeft];
+  }
+
+  function snapPolygonPoint(pointer: { x: number; y: number }): SnapResult {
+    if (!metrics) {
+      return { point: pointer, snapped: false, currentFirstVertex: false };
+    }
+
+    const threshold = snapThreshold();
+    let bestPoint = pointer;
+    let bestDistance = threshold;
+    let currentFirstVertex = false;
+    const vertices: Array<{
+      point: { x: number; y: number };
+      currentFirstVertex?: boolean;
+    }> = [];
+    const segments: Array<
+      [{ x: number; y: number }, { x: number; y: number }]
+    > = [];
+
+    [...state.currentBoxes, ...state.suggestedBoxes].forEach((box) => {
+      const points = rectangleSnapPoints(box);
+      points.forEach((point) => vertices.push({ point }));
+      addSnapSegments(segments, points, true);
+    });
+
+    state.currentShapes.forEach((shape) => {
+      const points = shape.points.map(normalizedToImage);
+      if (shape.kind === "polygon") {
+        points.forEach((point) => vertices.push({ point }));
+        addSnapSegments(segments, points, true);
+      }
+      if (shape.kind === "line") {
+        points.forEach((point) => vertices.push({ point }));
+        addSnapSegments(segments, points, false);
+      }
+      if (shape.kind === "point" || shape.kind === "circle") {
+        points.forEach((point) => vertices.push({ point }));
+      }
+    });
+
+    polygonPoints.forEach((point, index) => {
+      vertices.push({ point, currentFirstVertex: index === 0 });
+    });
+    addSnapSegments(segments, polygonPoints, false);
+
+    vertices.forEach((candidate) => {
+      const candidateDistance = distance(pointer, candidate.point);
+      if (candidateDistance <= bestDistance) {
+        bestPoint = candidate.point;
+        bestDistance = candidateDistance;
+        currentFirstVertex = Boolean(candidate.currentFirstVertex);
+      }
+    });
+
+    segments.forEach(([start, end]) => {
+      const projected = projectPointToSegment(pointer, start, end);
+      const candidateDistance = distance(pointer, projected);
+      if (candidateDistance < bestDistance) {
+        bestPoint = projected;
+        bestDistance = candidateDistance;
+        currentFirstVertex = false;
+      }
+    });
+
+    return {
+      point: bestPoint,
+      snapped: bestDistance < threshold,
+      currentFirstVertex,
+    };
+  }
+
+  function updateSnapIndicator(snap: SnapResult) {
+    if (!drawingLayer || !metrics || !snap.snapped) {
+      tempSnapPoint?.destroy();
+      tempSnapPoint = null;
+      drawingLayer?.batchDraw();
+      return;
+    }
+
+    const x = metrics.offsetX + snap.point.x;
+    const y = metrics.offsetY + snap.point.y;
+    if (!tempSnapPoint) {
+      tempSnapPoint = new Konva.Circle({
+        x,
+        y,
+        radius: 5,
+        stroke: "#ffffff",
+        strokeWidth: 2,
+        fill: "#4a9eff",
+        listening: false,
+      });
+      drawingLayer.add(tempSnapPoint);
+    } else {
+      tempSnapPoint.position({ x, y });
+    }
+    tempSnapPoint.moveToTop();
+  }
+
+  function renderShape(shape: (typeof state.currentShapes)[number]) {
+    if (!annotationLayer || !metrics || shape.points.length === 0) return;
+    const annotationClass = classForId(shape.classId);
+    const color = annotationClass?.color ?? "#4a9eff";
+    const selected = state.selectedShapeId === shape.id;
+    const group = new Konva.Group({ listening: true });
+    const labelPoint = normalizedToCanvas(shape.points[0]);
+
+    if (shape.kind === "point") {
+      group.add(
+        new Konva.Circle({
+          x: labelPoint.x,
+          y: labelPoint.y,
+          radius: selected ? 6 : 5,
+          stroke: color,
+          strokeWidth: selected ? 3 : 2,
+          fill: `${color}44`,
+        }),
+      );
+    }
+
+    if (shape.kind === "line" && shape.points.length >= 2) {
+      const points = shape.points.flatMap((point) => {
+        const canvasPoint = normalizedToCanvas(point);
+        return [canvasPoint.x, canvasPoint.y];
+      });
+      group.add(
+        new Konva.Line({
+          points,
+          stroke: color,
+          strokeWidth: selected ? 3 : 2,
+          lineCap: "round",
+          lineJoin: "round",
+        }),
+      );
+    }
+
+    if (shape.kind === "circle" && shape.points.length >= 2) {
+      const center = normalizedToCanvas(shape.points[0]);
+      const edge = normalizedToCanvas(shape.points[1]);
+      group.add(
+        new Konva.Circle({
+          x: center.x,
+          y: center.y,
+          radius: Math.hypot(edge.x - center.x, edge.y - center.y),
+          stroke: color,
+          strokeWidth: selected ? 3 : 2,
+          fill: selected ? `${color}22` : "transparent",
+        }),
+      );
+    }
+
+    if (shape.kind === "polygon" && shape.points.length >= 2) {
+      const points = shape.points.flatMap((point) => {
+        const canvasPoint = normalizedToCanvas(point);
+        return [canvasPoint.x, canvasPoint.y];
+      });
+      group.add(
+        new Konva.Line({
+          points,
+          closed: shape.points.length >= 3,
+          stroke: color,
+          strokeWidth: selected ? 3 : 2,
+          fill: shape.points.length >= 3 ? `${color}20` : "transparent",
+          lineJoin: "round",
+        }),
+      );
+    }
+
+    group.add(
+      new Konva.Text({
+        x: labelPoint.x,
+        y: Math.max(0, labelPoint.y - 20),
+        text: annotationClass
+          ? `${annotationClass.name} #${annotationClass.id}`
+          : `Class #${shape.classId}`,
+        fill: "#ffffff",
+        fontSize: 12,
+        fontStyle: "bold",
+        padding: 4,
+        shadowColor: "#000000",
+        shadowBlur: 2,
+        listening: false,
+      }),
+    );
+    group.on("click tap", (event) => {
+      event.cancelBubble = true;
+      selectShape(shape.id);
+    });
+    annotationLayer.add(group);
+  }
+
   function renderBoxes() {
     if (!annotationLayer || !metrics) return;
     annotationLayer.destroyChildren();
@@ -240,6 +529,8 @@ export default function AnnotationCanvas(props: Props) {
 
       annotationLayer!.add(group);
     });
+
+    state.currentShapes.forEach(renderShape);
 
     state.currentBoxes.forEach((box) => {
       const pixel = yoloToPixel(
@@ -455,14 +746,121 @@ export default function AnnotationCanvas(props: Props) {
     annotationLayer.batchDraw();
   }
 
+  function redrawTempPolygon(pointer?: { x: number; y: number }) {
+    if (!drawingLayer || !metrics) return;
+    const color = classForId(state.activeClassId)?.color ?? "#4a9eff";
+    const snap = pointer ? snapPolygonPoint(pointer) : null;
+    const previewPoint = snap?.point ?? pointer;
+    const points = [
+      ...polygonPoints,
+      ...(previewPoint ? [previewPoint] : []),
+    ].flatMap((point) => [
+      metrics!.offsetX + point.x,
+      metrics!.offsetY + point.y,
+    ]);
+
+    if (!tempPolygon) {
+      tempPolygon = new Konva.Line({
+        points,
+        stroke: color,
+        strokeWidth: 2,
+        dash: [6, 4],
+        fill: "#4a9eff22",
+        lineJoin: "round",
+      });
+      drawingLayer.add(tempPolygon);
+    } else {
+      tempPolygon.points(points);
+      tempPolygon.closed(polygonPoints.length >= 3 && !pointer);
+    }
+    if (snap) updateSnapIndicator(snap);
+    drawingLayer.batchDraw();
+  }
+
+  function finishPolygon() {
+    if (!drawingLayer || !metrics || polygonPoints.length < 3) return;
+    addShape({
+      id: `shape-${Date.now()}`,
+      kind: "polygon",
+      classId: state.activeClassId,
+      points: polygonPoints.map(imagePointToNormalized),
+    });
+    cancelPolygon();
+  }
+
+  function cancelPolygon() {
+    polygonPoints = [];
+    tempPolygon?.destroy();
+    tempPolygon = null;
+    tempSnapPoint?.destroy();
+    tempSnapPoint = null;
+    drawingLayer?.batchDraw();
+  }
+
   function startDrawing() {
     if (state.drawMode !== "draw" || !drawingLayer || !metrics) return;
-    drawingStart = pointerInImage();
-    if (!drawingStart) return;
     selectBox(null);
+    selectShape(null);
+    const pointer = pointerInImage();
+    if (!pointer) return;
+
+    if (state.shapeTool === "point") {
+      addShape({
+        id: `shape-${Date.now()}`,
+        kind: "point",
+        classId: state.activeClassId,
+        points: [imagePointToNormalized(pointer)],
+      });
+      return;
+    }
+
+    if (state.shapeTool === "polygon") {
+      const snap = snapPolygonPoint(pointer);
+      if (snap.currentFirstVertex && polygonPoints.length >= 3) {
+        finishPolygon();
+        return;
+      }
+      polygonPoints.push(snap.point);
+      redrawTempPolygon(snap.point);
+      updateSnapIndicator(snap);
+      return;
+    }
+
+    drawingStart = pointer;
+    if (state.shapeTool === "line") {
+      tempLine = new Konva.Line({
+        points: [
+          metrics.offsetX + pointer.x,
+          metrics.offsetY + pointer.y,
+          metrics.offsetX + pointer.x,
+          metrics.offsetY + pointer.y,
+        ],
+        stroke: classForId(state.activeClassId)?.color ?? "#4a9eff",
+        strokeWidth: 2,
+        dash: [6, 4],
+        lineCap: "round",
+      });
+      drawingLayer.add(tempLine);
+      return;
+    }
+
+    if (state.shapeTool === "circle") {
+      tempCircle = new Konva.Circle({
+        x: metrics.offsetX + pointer.x,
+        y: metrics.offsetY + pointer.y,
+        radius: 0,
+        stroke: classForId(state.activeClassId)?.color ?? "#4a9eff",
+        strokeWidth: 2,
+        dash: [6, 4],
+        fill: "#4a9eff22",
+      });
+      drawingLayer.add(tempCircle);
+      return;
+    }
+
     tempRect = new Konva.Rect({
-      x: metrics.offsetX + drawingStart.x,
-      y: metrics.offsetY + drawingStart.y,
+      x: metrics.offsetX + pointer.x,
+      y: metrics.offsetY + pointer.y,
       width: 0,
       height: 0,
       stroke: classForId(state.activeClassId)?.color ?? "#4a9eff",
@@ -474,9 +872,39 @@ export default function AnnotationCanvas(props: Props) {
   }
 
   function moveDrawing() {
-    if (!drawingStart || !tempRect || !drawingLayer || !metrics) return;
+    if (!drawingLayer || !metrics) return;
     const current = pointerInImage();
     if (!current) return;
+
+    if (state.shapeTool === "polygon" && polygonPoints.length > 0) {
+      const snap = snapPolygonPoint(current);
+      redrawTempPolygon(snap.point);
+      updateSnapIndicator(snap);
+      return;
+    }
+
+    if (!drawingStart) return;
+
+    if (state.shapeTool === "line" && tempLine) {
+      tempLine.points([
+        metrics.offsetX + drawingStart.x,
+        metrics.offsetY + drawingStart.y,
+        metrics.offsetX + current.x,
+        metrics.offsetY + current.y,
+      ]);
+      drawingLayer.batchDraw();
+      return;
+    }
+
+    if (state.shapeTool === "circle" && tempCircle) {
+      tempCircle.radius(
+        Math.hypot(current.x - drawingStart.x, current.y - drawingStart.y),
+      );
+      drawingLayer.batchDraw();
+      return;
+    }
+
+    if (!tempRect) return;
     const x = Math.min(drawingStart.x, current.x);
     const y = Math.min(drawingStart.y, current.y);
     const width = Math.abs(current.x - drawingStart.x);
@@ -491,7 +919,51 @@ export default function AnnotationCanvas(props: Props) {
   }
 
   function finishDrawing() {
-    if (!drawingStart || !tempRect || !drawingLayer || !metrics) return;
+    if (!drawingLayer || !metrics) return;
+    const current = pointerInImage();
+    if (drawingStart && current && state.shapeTool === "line" && tempLine) {
+      tempLine.destroy();
+      tempLine = null;
+      drawingLayer.batchDraw();
+      if (
+        Math.hypot(current.x - drawingStart.x, current.y - drawingStart.y) >
+        MIN_BOX_SIZE
+      ) {
+        addShape({
+          id: `shape-${Date.now()}`,
+          kind: "line",
+          classId: state.activeClassId,
+          points: [
+            imagePointToNormalized(drawingStart),
+            imagePointToNormalized(current),
+          ],
+        });
+      }
+      drawingStart = null;
+      return;
+    }
+
+    if (drawingStart && current && state.shapeTool === "circle" && tempCircle) {
+      const radius = tempCircle.radius();
+      tempCircle.destroy();
+      tempCircle = null;
+      drawingLayer.batchDraw();
+      if (radius > MIN_BOX_SIZE) {
+        addShape({
+          id: `shape-${Date.now()}`,
+          kind: "circle",
+          classId: state.activeClassId,
+          points: [
+            imagePointToNormalized(drawingStart),
+            imagePointToNormalized(current),
+          ],
+        });
+      }
+      drawingStart = null;
+      return;
+    }
+
+    if (!drawingStart || !tempRect) return;
     const width = tempRect.width();
     const height = tempRect.height();
     const x = tempRect.x() - metrics.offsetX;
@@ -530,14 +1002,30 @@ export default function AnnotationCanvas(props: Props) {
       return;
     }
 
+    if (key === "enter" && state.shapeTool === "polygon") {
+      event.preventDefault();
+      finishPolygon();
+      return;
+    }
+
     if (key === "d") setDrawMode("draw");
-    if (event.key === "Escape") setDrawMode("select");
+    if (event.key === "Escape") {
+      cancelPolygon();
+      setDrawMode("select");
+    }
     if (
       (event.key === "Delete" || event.key === "Backspace") &&
       state.selectedBoxId
     ) {
       event.preventDefault();
       deleteBox(state.selectedBoxId);
+    }
+    if (
+      (event.key === "Delete" || event.key === "Backspace") &&
+      state.selectedShapeId
+    ) {
+      event.preventDefault();
+      deleteShape(state.selectedShapeId);
     }
   }
 
@@ -606,7 +1094,10 @@ export default function AnnotationCanvas(props: Props) {
     stage.on("mouseup touchend", finishDrawing);
     stage.on("wheel", handleWheel);
     stage.on("click tap", (event) => {
-      if (event.target === stage || event.target === imageNode) selectBox(null);
+      if (event.target === stage || event.target === imageNode) {
+        selectBox(null);
+        selectShape(null);
+      }
     });
     window.addEventListener("keydown", handleKeydown);
   });
@@ -648,8 +1139,18 @@ export default function AnnotationCanvas(props: Props) {
           `${box.id}:${box.cx}:${box.cy}:${box.w}:${box.h}:${box.classId}`,
       )
       .join("|");
+    state.currentShapes
+      .map(
+        (shape) =>
+          `${shape.id}:${shape.kind}:${shape.classId}:${shape.points
+            .map((point) => `${point.x}:${point.y}`)
+            .join(",")}`,
+      )
+      .join("|");
     state.selectedBoxId;
+    state.selectedShapeId;
     state.drawMode;
+    state.shapeTool;
     state.project?.classes
       .map((item) => `${item.id}:${item.name}:${item.color}`)
       .join("|");

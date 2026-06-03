@@ -7,6 +7,18 @@ export interface BBox {
   classId: number;
 }
 
+export interface AnnotationPoint {
+  x: number;
+  y: number;
+}
+
+export interface AnnotationShape {
+  id: string;
+  kind: ShapeTool;
+  classId: number;
+  points: AnnotationPoint[];
+}
+
 export interface AnnotationClass {
   id: number;
   name: string;
@@ -44,6 +56,7 @@ export interface ModelProfile {
 }
 
 export type DrawMode = "draw" | "select";
+export type ShapeTool = "rect" | "polygon" | "point" | "circle" | "line";
 export type Language = "en" | "zh";
 export type OutputFormat = "yolo" | "coco";
 export type RightPanelTab = "classes" | "annotations" | "assist" | "export";

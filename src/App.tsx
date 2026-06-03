@@ -9,8 +9,10 @@ import {
   markSaved,
   openProject,
   setCurrentBoxes,
+  setCurrentShapes,
   state,
 } from "./stores/app";
+import { parseShapes, serializeShapes } from "./utils/shapes";
 import {
   parseClasses,
   parseYolo,
@@ -23,8 +25,10 @@ import {
   pickFolder,
   readClassesFile,
   readLabelFile,
+  readShapesFile,
   writeClassesFile,
   writeLabelFile,
+  writeShapesFile,
 } from "./utils/fs";
 import { tr } from "./utils/i18n";
 
@@ -48,6 +52,11 @@ export default function App() {
       project.labelFolderPath,
       image.filename,
       serializeYolo(state.currentBoxes),
+    );
+    await writeShapesFile(
+      project.labelFolderPath,
+      image.filename,
+      serializeShapes(state.currentShapes),
     );
     await writeClassesFile(
       project.labelFolderPath,
@@ -149,16 +158,21 @@ export default function App() {
       project && typeof index === "number" ? project.images[index] : undefined;
     if (!project || !image) {
       setCurrentBoxes([]);
+      setCurrentShapes([]);
       return;
     }
     void (async () => {
-      const text = await readLabelFile(project.labelFolderPath, image.filename);
+      const [labelText, shapesText] = await Promise.all([
+        readLabelFile(project.labelFolderPath, image.filename),
+        readShapesFile(project.labelFolderPath, image.filename),
+      ]);
       if (
         state.project?.imageFolderPath === project.imageFolderPath &&
         state.project.labelFolderPath === project.labelFolderPath &&
         state.project.currentIndex === index
       ) {
-        setCurrentBoxes(parseYolo(text), image.filename);
+        setCurrentBoxes(parseYolo(labelText), image.filename);
+        setCurrentShapes(parseShapes(shapesText));
       }
     })();
   });
@@ -172,12 +186,19 @@ export default function App() {
           `${box.id}:${box.classId}:${box.cx}:${box.cy}:${box.w}:${box.h}`,
       )
       .join("|");
+    const shapesSignature = state.currentShapes
+      .map(
+        (shape) =>
+          `${shape.id}:${shape.kind}:${shape.classId}:${shape.points.map((point) => `${point.x}:${point.y}`).join(",")}`,
+      )
+      .join("|");
     const classesSignature = project?.classes
       .map((item) => `${item.id}:${item.name}`)
       .join("|");
     state.autoSave;
     state.dirty;
     boxesSignature;
+    shapesSignature;
     classesSignature;
 
     if (!state.autoSave || !state.dirty || !project || !image) return;

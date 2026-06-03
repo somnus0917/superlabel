@@ -78,6 +78,21 @@ export async function writeLabelFile(
   await invoke("write_label_file", { folderPath, imageFilename, content });
 }
 
+export async function readShapesFile(
+  folderPath: string,
+  imageFilename: string,
+): Promise<string> {
+  return invoke("read_shapes_file", { folderPath, imageFilename });
+}
+
+export async function writeShapesFile(
+  folderPath: string,
+  imageFilename: string,
+  content: string,
+): Promise<void> {
+  await invoke("write_shapes_file", { folderPath, imageFilename, content });
+}
+
 export async function readClassesFile(folderPath: string): Promise<string> {
   return invoke("read_classes_file", { folderPath });
 }

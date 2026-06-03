@@ -127,6 +127,20 @@ fn write_label_file(
 }
 
 #[tauri::command]
+fn read_shapes_file(folder_path: String, image_filename: String) -> Result<String, String> {
+    Ok(read_optional_string(&shape_path(&folder_path, &image_filename)).unwrap_or_default())
+}
+
+#[tauri::command]
+fn write_shapes_file(
+    folder_path: String,
+    image_filename: String,
+    content: String,
+) -> Result<(), String> {
+    atomic_write(shape_path(&folder_path, &image_filename), content)
+}
+
+#[tauri::command]
 fn read_classes_file(folder_path: String) -> Result<String, String> {
     Ok(read_optional_string(&Path::new(&folder_path).join("classes.txt")).unwrap_or_default())
 }
@@ -323,6 +337,10 @@ fn is_image_file(path: &Path) -> bool {
 
 fn label_path(folder_path: &str, image_filename: &str) -> PathBuf {
     Path::new(folder_path).join(format!("{}.txt", file_stem(image_filename)))
+}
+
+fn shape_path(folder_path: &str, image_filename: &str) -> PathBuf {
+    Path::new(folder_path).join(format!("{}.superlabel.json", file_stem(image_filename)))
 }
 
 fn file_stem(filename: &str) -> String {
@@ -847,6 +865,8 @@ pub fn run() {
             load_images_from_folder,
             read_label_file,
             write_label_file,
+            read_shapes_file,
+            write_shapes_file,
             read_classes_file,
             write_classes_file,
             read_text_file,
