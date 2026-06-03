@@ -283,7 +283,7 @@ fn export_coco_file(
             annotations.push(json!({
                 "id": annotation_id,
                 "image_id": image_index + 1,
-                "category_id": bbox.class_id,
+                "category_id": bbox.class_id + 1,
                 "bbox": [round3(x), round3(y), round3(width), round3(height)],
                 "area": round3(width * height),
                 "iscrowd": 0,
@@ -297,7 +297,7 @@ fn export_coco_file(
         .iter()
         .map(|item| {
             json!({
-                "id": item.id,
+                "id": item.id + 1,
                 "name": item.name,
                 "supercategory": "object",
             })
@@ -370,7 +370,10 @@ fn compute_project_stats(
         let boxes = if image.filename == current_image_filename {
             current_boxes.clone()
         } else {
-            parse_yolo(&read_label_file(folder_path.clone(), image.filename.clone())?)
+            parse_yolo(&read_label_file(
+                folder_path.clone(),
+                image.filename.clone(),
+            )?)
         };
 
         if !boxes.is_empty() {
@@ -1168,6 +1171,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(OnnxState::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             load_images_from_folder,
             read_label_file,
