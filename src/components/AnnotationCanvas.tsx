@@ -8,10 +8,12 @@ import {
   redoBoxes,
   selectBox,
   selectShape,
+  setActiveClass,
   setDrawMode,
   state,
   undoBoxes,
   updateBox,
+  updateShape,
 } from "../stores/app";
 import { pixelToYolo, yoloToPixel } from "../utils/yolo";
 
@@ -1002,6 +1004,11 @@ export default function AnnotationCanvas(props: Props) {
       return;
     }
 
+    if (!commandKey && !event.altKey && switchClassWithNumberKey(event.key)) {
+      event.preventDefault();
+      return;
+    }
+
     if (key === "enter" && state.shapeTool === "polygon") {
       event.preventDefault();
       finishPolygon();
@@ -1027,6 +1034,25 @@ export default function AnnotationCanvas(props: Props) {
       event.preventDefault();
       deleteShape(state.selectedShapeId);
     }
+  }
+
+  function switchClassWithNumberKey(key: string) {
+    if (!/^[0-9]$/.test(key)) return false;
+
+    const classes = state.project?.classes ?? [];
+    const classIndex = key === "0" ? 9 : Number(key) - 1;
+    const annotationClass = classes[classIndex];
+    if (!annotationClass) return false;
+
+    setActiveClass(annotationClass.id);
+    if (state.selectedBoxId) {
+      updateBox(state.selectedBoxId, { classId: annotationClass.id });
+    }
+    if (state.selectedShapeId) {
+      updateShape(state.selectedShapeId, { classId: annotationClass.id });
+    }
+
+    return true;
   }
 
   function handleWheel(event: Konva.KonvaEventObject<WheelEvent>) {

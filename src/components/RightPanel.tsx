@@ -857,6 +857,8 @@ export default function RightPanel() {
                 <span>{tr(state.language, "undo")}</span>
                 <span>Ctrl/Cmd+Shift+Z</span>
                 <span>{tr(state.language, "redo")}</span>
+                <span>1-9, 0</span>
+                <span>{tr(state.language, "switchClass")}</span>
                 <span>Del</span>
                 <span>{tr(state.language, "delete")}</span>
               </div>
