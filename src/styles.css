@@ -553,6 +553,21 @@ button:disabled {
   transition: width 120ms ease;
 }
 
+.progress-fill.indeterminate {
+  animation: progress-indeterminate 900ms ease-in-out infinite;
+  transition: none;
+}
+
+@keyframes progress-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(280%);
+  }
+}
+
 .progress-label {
   min-width: 44px;
   color: var(--text-muted);
@@ -573,6 +588,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   padding: 0 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -585,6 +601,23 @@ button:disabled {
   border-color: #4a7aaa;
   background: #2a3a4a;
   color: #88ccff;
+}
+
+.panel-button.is-loading::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .button-grid {

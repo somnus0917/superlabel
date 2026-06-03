@@ -78,7 +78,7 @@ struct CachedOnnxModel {
 
 #[derive(Default)]
 struct OnnxState {
-    cached_model: Mutex<Option<CachedOnnxModel>>,
+    cached_model: Arc<Mutex<Option<CachedOnnxModel>>>,
 }
 
 #[tauri::command]
@@ -283,8 +283,38 @@ fn export_coco_file(
 }
 
 #[tauri::command]
-fn run_onnx_detection(
+async fn run_onnx_detection(
     state: State<'_, OnnxState>,
+    model_path: String,
+    image_path: String,
+    input_size: u32,
+    confidence: f32,
+    nms: f32,
+    class_count: usize,
+    class_min: u32,
+    class_max: u32,
+) -> Result<Vec<BBox>, String> {
+    let cached_model = Arc::clone(&state.cached_model);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_onnx_detection_blocking(
+            cached_model,
+            model_path,
+            image_path,
+            input_size,
+            confidence,
+            nms,
+            class_count,
+            class_min,
+            class_max,
+        )
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+fn run_onnx_detection_blocking(
+    cached_model: Arc<Mutex<Option<CachedOnnxModel>>>,
     model_path: String,
     image_path: String,
     input_size: u32,
@@ -296,7 +326,7 @@ fn run_onnx_detection(
 ) -> Result<Vec<BBox>, String> {
     let input_size = input_size.max(32);
     let (input_tensor, letterbox) = prepare_onnx_input(&image_path, input_size)?;
-    let model = cached_onnx_model(&state, &model_path, input_size)?;
+    let model = cached_onnx_model(&cached_model, &model_path, input_size)?;
 
     let outputs = model
         .run(tvec!(input_tensor.into_tvalue()))
@@ -339,12 +369,11 @@ fn run_onnx_detection(
 }
 
 fn cached_onnx_model(
-    state: &State<'_, OnnxState>,
+    cached_model: &Mutex<Option<CachedOnnxModel>>,
     model_path: &str,
     input_size: u32,
 ) -> Result<Arc<TypedRunnableModel>, String> {
-    let mut cached_model = state
-        .cached_model
+    let mut cached_model = cached_model
         .lock()
         .map_err(|_| "ONNX model cache is unavailable".to_string())?;
 

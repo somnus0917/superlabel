@@ -60,6 +60,8 @@ interface DownloadProgress {
   done: boolean;
 }
 
+type OnnxRunMode = "idle" | "current" | "all";
+
 export default function RightPanel() {
   const [className, setClassName] = createSignal("");
   const [editingClassId, setEditingClassId] = createSignal<number | null>(null);
@@ -74,6 +76,7 @@ export default function RightPanel() {
   const [downloadProgress, setDownloadProgress] = createSignal(0);
   const [downloadProgressText, setDownloadProgressText] = createSignal("");
   const [onnxProgressRatio, setOnnxProgressRatio] = createSignal(0);
+  const [onnxRunMode, setOnnxRunMode] = createSignal<OnnxRunMode>("idle");
 
   function submitClass(event: SubmitEvent) {
     event.preventDefault();
@@ -221,10 +224,14 @@ export default function RightPanel() {
     if (!state.onnxModelPath || !image || isRunningOnnx()) return;
 
     setIsRunningOnnx(true);
-    setOnnxStatus(tr(state.language, "inferenceRunning"));
+    setOnnxRunMode("current");
+    setOnnxStatus(
+      `${tr(state.language, "prelabelingCurrent")}: ${image.filename}`,
+    );
     setOnnxProgress("1/1");
-    setOnnxProgressRatio(0.15);
+    setOnnxProgressRatio(0);
     try {
+      await waitForNextPaint();
       const boxes = await runOnnxDetection(
         state.onnxModelPath,
         image.fullPath,
@@ -246,6 +253,7 @@ export default function RightPanel() {
       );
     } finally {
       setIsRunningOnnx(false);
+      setOnnxRunMode("idle");
       window.setTimeout(() => {
         setOnnxProgress("");
         setOnnxProgressRatio(0);
@@ -258,10 +266,12 @@ export default function RightPanel() {
     if (!state.onnxModelPath || !project || isRunningOnnx()) return;
 
     setIsRunningOnnx(true);
-    setOnnxStatus(tr(state.language, "inferenceRunning"));
+    setOnnxRunMode("all");
+    setOnnxStatus(tr(state.language, "prelabelingAll"));
     setOnnxProgress(`0/${project.images.length}`);
     setOnnxProgressRatio(0);
     try {
+      await waitForNextPaint();
       let totalBoxes = 0;
       for (const [index, image] of project.images.entries()) {
         setOnnxProgress(`${index + 1}/${project.images.length}`);
@@ -289,6 +299,7 @@ export default function RightPanel() {
       );
     } finally {
       setIsRunningOnnx(false);
+      setOnnxRunMode("idle");
       window.setTimeout(() => {
         setOnnxProgress("");
         setOnnxProgressRatio(0);
@@ -713,26 +724,30 @@ export default function RightPanel() {
               </div>
               <div class="button-grid">
                 <button
-                  class="panel-button primary"
+                  class={`panel-button primary${onnxRunMode() === "current" ? " is-loading" : ""}`}
                   type="button"
+                  aria-busy={onnxRunMode() === "current"}
                   disabled={
                     !state.onnxModelPath || !state.project || isRunningOnnx()
                   }
                   onClick={runCurrentImageDetection}
                 >
-                  {isRunningOnnx()
-                    ? tr(state.language, "inferenceRunning")
+                  {onnxRunMode() === "current"
+                    ? tr(state.language, "prelabeling")
                     : tr(state.language, "runCurrentImage")}
                 </button>
                 <button
-                  class="panel-button primary"
+                  class={`panel-button primary${onnxRunMode() === "all" ? " is-loading" : ""}`}
                   type="button"
+                  aria-busy={onnxRunMode() === "all"}
                   disabled={
                     !state.onnxModelPath || !state.project || isRunningOnnx()
                   }
                   onClick={runAllImagesDetection}
                 >
-                  {tr(state.language, "runAllImages")}
+                  {onnxRunMode() === "all"
+                    ? tr(state.language, "prelabeling")
+                    : tr(state.language, "runAllImages")}
                 </button>
                 <button
                   class="panel-button"
@@ -767,6 +782,9 @@ export default function RightPanel() {
                 <ProgressBar
                   value={onnxProgressRatio()}
                   label={onnxProgress()}
+                  indeterminate={
+                    isRunningOnnx() && onnxRunMode() === "current"
+                  }
                 />
               </Show>
             </div>
@@ -910,13 +928,33 @@ function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function ProgressBar(props: { value: number; label?: string }) {
+function waitForNextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame !== "function") {
+      window.setTimeout(resolve, 0);
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
+function ProgressBar(props: {
+  value: number;
+  label?: string;
+  indeterminate?: boolean;
+}) {
   const percent = () =>
     `${Math.round(Math.max(0, Math.min(1, props.value)) * 100)}%`;
   return (
     <div class="progress-row">
       <div class="progress-track" aria-hidden="true">
-        <div class="progress-fill" style={{ width: percent() }} />
+        <div
+          class={`progress-fill${props.indeterminate ? " indeterminate" : ""}`}
+          style={{ width: props.indeterminate ? "38%" : percent() }}
+        />
       </div>
       <span class="progress-label">{props.label || percent()}</span>
     </div>
