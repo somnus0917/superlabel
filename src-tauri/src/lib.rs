@@ -7,7 +7,9 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use tauri::{Emitter, Manager, State, Window};
+#[cfg(debug_assertions)]
+use tauri::Manager;
+use tauri::{Emitter, State, Window};
 use tract_onnx::prelude::*;
 use tract_onnx::tract_core::dims;
 
@@ -1181,9 +1183,9 @@ pub fn run() {
             compute_project_stats,
             run_onnx_detection,
         ])
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(debug_assertions)]
-            app.get_webview_window("main").unwrap().open_devtools();
+            _app.get_webview_window("main").unwrap().open_devtools();
             Ok(())
         })
         .run(tauri::generate_context!())
