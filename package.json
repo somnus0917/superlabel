@@ -1,10 +1,11 @@
 {
   "name": "superlabel",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "tauri:dev:x11": "WEBKIT_DISABLE_DMABUF_RENDERER=1 GDK_BACKEND=x11 tauri dev",
     "tauri": "tauri"
   },
   "dependencies": {

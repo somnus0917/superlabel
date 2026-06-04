@@ -125,6 +125,12 @@ Run the Tauri app in development:
 pnpm tauri dev
 ```
 
+If the Linux desktop window crashes on Wayland with a `Gdk-Message` protocol error, run the X11 fallback:
+
+```bash
+pnpm tauri:dev:x11
+```
+
 Run only the frontend dev server:
 
 ```bash
@@ -142,6 +148,8 @@ Build the desktop app:
 ```bash
 pnpm tauri build
 ```
+
+Linux release builds generate AppImage and deb packages. Use the AppImage on Arch Linux and CachyOS.
 
 Check Rust code:
 
