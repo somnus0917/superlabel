@@ -131,10 +131,16 @@ If the Linux desktop window crashes on Wayland with a `Gdk-Message` protocol err
 pnpm tauri:dev:x11
 ```
 
-Linux builds disable WebKitGTK DMABUF rendering by default to avoid blank windows on some Wayland, NVIDIA, AMD, and Intel driver combinations. To force the app through XWayland, run:
+Linux builds disable WebKitGTK DMABUF rendering and compositing by default to avoid blank windows on some Wayland, NVIDIA, AMD, and Intel driver combinations. Packaged builds also default to XWayland when they detect a Wayland session. To force the app through XWayland manually, run:
 
 ```bash
 SUPERLABEL_FORCE_X11=1 superlabel
+```
+
+To keep native Wayland enabled on a machine where it is stable, run:
+
+```bash
+SUPERLABEL_USE_WAYLAND=1 superlabel
 ```
 
 Run only the frontend dev server:
