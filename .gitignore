@@ -15,3 +15,6 @@ src-tauri/target/
 # Editor files
 .idea/
 .vscode/
+
+# codegraph
+.codegraph/
